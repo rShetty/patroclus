@@ -2,6 +2,7 @@ use axum::{
     Json,
     extract::{Path, State},
     http::StatusCode,
+    response::Html,
     routing::{get, post},
 };
 use chrono::{Duration, Utc};
@@ -112,8 +113,8 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
     ]
 }
 
-async fn dashboard() -> (StatusCode, String) {
-    (StatusCode::OK, crate::dashboard::dashboard_html())
+async fn dashboard() -> Html<String> {
+    Html(crate::dashboard::dashboard_html())
 }
 
 async fn health() -> (StatusCode, Json<serde_json::Value>) {
