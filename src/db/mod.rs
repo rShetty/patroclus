@@ -830,6 +830,90 @@ impl Database {
         drop(conn);
         self.get_approval_request(id)
     }
+
+    // ── Vault credential management ────────────────────────────────
+
+    pub fn store_vault_credential(
+        &self,
+        principal_id: Uuid,
+        provider: &str,
+        encrypted_token: &[u8],
+        nonce: &[u8],
+        encryption_key_id: &str,
+        scopes: &[String],
+        expires_at: Option<chrono::DateTime<Utc>>,
+    ) -> Result<Uuid> {
+        let conn = self.conn.lock();
+        let id = Uuid::now_v7();
+        let now = Utc::now();
+        conn.execute(
+            "INSERT OR REPLACE INTO vault_credentials (id, principal_id, provider, encrypted_token, nonce, encryption_key_id, scopes, expires_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                id.to_string(),
+                principal_id.to_string(),
+                provider,
+                encrypted_token,
+                nonce,
+                encryption_key_id,
+                serde_json::to_string(scopes).unwrap_or_default(),
+                expires_at.map(|t| t.to_rfc3339()),
+                now.to_rfc3339(),
+                now.to_rfc3339(),
+            ],
+        )?;
+        Ok(id)
+    }
+
+    pub fn get_vault_credential(
+        &self,
+        principal_id: Uuid,
+        provider: &str,
+    ) -> Result<Option<VaultCredentialRecord>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, principal_id, provider, encrypted_token, nonce, encryption_key_id, scopes, expires_at, created_at, updated_at
+             FROM vault_credentials WHERE principal_id = ? AND provider = ? ORDER BY updated_at DESC LIMIT 1",
+        )?;
+        let result = stmt.query_row(
+            params![principal_id.to_string(), provider],
+            |row| {
+                let scopes_str: String = row.get(6)?;
+                let expires_str: Option<String> = row.get(7)?;
+                Ok(VaultCredentialRecord {
+                    id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_default(),
+                    principal_id: Uuid::parse_str(&row.get::<_, String>(1)?).unwrap_or_default(),
+                    provider: row.get(2)?,
+                    encrypted_token: row.get(3)?,
+                    nonce: row.get(4)?,
+                    encryption_key_id: row.get(5)?,
+                    scopes: serde_json::from_str(&scopes_str).unwrap_or_default(),
+                    expires_at: expires_str.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()).map(|d| d.with_timezone(&Utc)),
+                    created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(8)?).map(|d| d.with_timezone(&Utc)).unwrap_or(Utc::now()),
+                    updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(9)?).map(|d| d.with_timezone(&Utc)).unwrap_or(Utc::now()),
+                })
+            },
+        );
+        match result {
+            Ok(record) => Ok(Some(record)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct VaultCredentialRecord {
+    pub id: Uuid,
+    pub principal_id: Uuid,
+    pub provider: String,
+    pub encrypted_token: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub encryption_key_id: String,
+    pub scopes: Vec<String>,
+    pub expires_at: Option<chrono::DateTime<Utc>>,
+    pub created_at: chrono::DateTime<Utc>,
+    pub updated_at: chrono::DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

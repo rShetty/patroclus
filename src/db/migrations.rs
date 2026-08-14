@@ -116,6 +116,7 @@ pub fn run(conn: &Connection) -> Result<()> {
             principal_id TEXT NOT NULL,
             provider TEXT NOT NULL,
             encrypted_token BLOB NOT NULL,
+            nonce BLOB NOT NULL DEFAULT x'',
             encryption_key_id TEXT NOT NULL,
             scopes TEXT NOT NULL,
             expires_at TEXT,

@@ -6,6 +6,7 @@ use crate::db::Database;
 use crate::policy::PolicyEngine;
 use crate::token::issuer::TokenIssuer;
 use crate::token::verifier::TokenVerifier;
+use crate::vault::Vault;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -14,6 +15,7 @@ pub struct AppState {
     pub policy_engine: Arc<dyn PolicyEngine>,
     pub token_issuer: Arc<TokenIssuer>,
     pub token_verifier: Arc<TokenVerifier>,
+    pub vault: Option<Arc<Vault>>,
 }
 
 impl AppState {
@@ -43,12 +45,27 @@ impl AppState {
             &config.token.issuer,
         )?);
 
+        let vault = match Vault::from_file(&config.vault.encryption_key_path) {
+            Ok(v) => {
+                tracing::info!("Vault initialized with key from {}", config.vault.encryption_key_path);
+                Some(Arc::new(v))
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "No vault key found at {} — credential vault disabled",
+                    config.vault.encryption_key_path
+                );
+                None
+            }
+        };
+
         Ok(AppState {
             db: Arc::new(db),
             config: Arc::new(config),
             policy_engine,
             token_issuer,
             token_verifier,
+            vault,
         })
     }
 
@@ -76,12 +93,15 @@ impl AppState {
             &config.token.issuer,
         )?);
 
+        let vault = Arc::new(Vault::new(b"test-vault-key-material")?);
+
         Ok(AppState {
             db: Arc::new(db),
             config: Arc::new(config),
             policy_engine,
             token_issuer,
             token_verifier,
+            vault: Some(vault),
         })
     }
 }

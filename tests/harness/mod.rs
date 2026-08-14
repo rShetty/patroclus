@@ -26,6 +26,7 @@ impl TestServer {
             policy_engine: std::sync::Arc::from(engine),
             token_issuer: state.token_issuer.clone(),
             token_verifier: state.token_verifier.clone(),
+            vault: state.vault.clone(),
         };
         let app = create_router(state.clone());
         Ok(TestServer { app, state })

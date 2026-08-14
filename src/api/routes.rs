@@ -55,6 +55,11 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
 
         // Admin — Token revocation
         ("/v1/admin/tokens/{jti}/revoke".to_string(), post(revoke_token)),
+
+        // Vault — credential storage and vending
+        ("/v1/vault/credentials".to_string(), post(store_credential).get(list_vault_credentials)),
+        ("/v1/vault/vend".to_string(), post(vend_credential)),
+        ("/v1/vault/generate-key".to_string(), post(generate_vault_key)),
     ]
 }
 
@@ -495,4 +500,110 @@ async fn revoke_token(
     state.db.revoke_token(&jti)?;
     state.token_verifier.revoke(&jti);
     Ok(Json(serde_json::json!({ "revoked": jti })))
+}
+
+// ── Vault routes ──────────────────────────────────────────────────
+
+async fn store_credential(
+    State(state): State<AppState>,
+    Json(req): Json<crate::vault::StoreCredentialRequest>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let vault = state.vault.as_ref().ok_or_else(|| {
+        PatroclusError::Vault("Vault not initialized — no encryption key configured".to_string())
+    })?;
+
+    let (encrypted, nonce) = vault.encrypt(&req.refresh_token)?;
+    let id = state.db.store_vault_credential(
+        req.principal_id,
+        &req.provider,
+        &encrypted,
+        &nonce,
+        vault.key_id(),
+        &req.scopes,
+        req.expires_at,
+    )?;
+
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "provider": req.provider,
+        "principal_id": req.principal_id,
+        "scopes": req.scopes,
+        "stored": true,
+    })))
+}
+
+async fn list_vault_credentials(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let _vault = state.vault.as_ref().ok_or_else(|| {
+        PatroclusError::Vault("Vault not initialized".to_string())
+    })?;
+    Ok(Json(serde_json::json!({
+        "credentials": [],
+        "note": "Vault credential listing requires admin authentication (not yet implemented)"
+    })))
+}
+
+#[derive(Deserialize)]
+struct VendCredentialBody {
+    principal_id: Uuid,
+    provider: String,
+    requested_scopes: Vec<String>,
+    agent_token_jti: String,
+    client_id: Option<String>,
+    client_secret: Option<String>,
+}
+
+async fn vend_credential(
+    State(state): State<AppState>,
+    Json(req): Json<VendCredentialBody>,
+) -> Result<Json<crate::vault::VendCredentialResponse>, PatroclusError> {
+    let vault = state.vault.as_ref().ok_or_else(|| {
+        PatroclusError::Vault("Vault not initialized".to_string())
+    })?;
+
+    let record = state
+        .db
+        .get_vault_credential(req.principal_id, &req.provider)?
+        .ok_or_else(|| {
+            PatroclusError::Vault(format!(
+                "No stored credential for provider '{}' and principal '{}'",
+                req.provider, req.principal_id
+            ))
+        })?;
+
+    let refresh_token = vault.decrypt(&record.encrypted_token, &record.nonce)?;
+
+    let client_id = req.client_id.unwrap_or_default();
+    let client_secret = req.client_secret.unwrap_or_default();
+
+    let provider = crate::vault::providers::create_provider(&req.provider, &client_id, &client_secret)
+        .ok_or_else(|| PatroclusError::Vault(format!("Unknown provider: {}", req.provider)))?;
+
+    let token_response = provider
+        .exchange_refresh(&refresh_token, &req.requested_scopes)
+        .await?;
+
+    let expires_at = token_response.expires_in.map(|secs| {
+        chrono::Utc::now() + chrono::Duration::seconds(secs as i64)
+    });
+
+    Ok(Json(crate::vault::VendCredentialResponse {
+        provider: req.provider.clone(),
+        access_token: token_response.access_token,
+        scopes: req.requested_scopes,
+        expires_at,
+        vended_for_jti: req.agent_token_jti,
+    }))
+}
+
+async fn generate_vault_key(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let path = &state.config.vault.encryption_key_path;
+    crate::vault::Vault::generate_key(path)?;
+    Ok(Json(serde_json::json!({
+        "generated": true,
+        "path": path,
+    })))
 }

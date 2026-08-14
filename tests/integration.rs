@@ -1228,3 +1228,263 @@ async fn test_e2e_multi_agent_delegation_chain() {
     assert!(chain[0].sub.starts_with("user:"));
     assert!(chain[0].act.starts_with("agent:"));
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// PHASE 4 TESTS — Credential Vault
+// ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn test_vault_encrypt_decrypt_roundtrip() {
+    use patroclus::vault::Vault;
+
+    let vault = Vault::new(b"test-key-material").unwrap();
+    let plaintext = "ghp_abcdef1234567890";
+    let (ciphertext, nonce) = vault.encrypt(plaintext).unwrap();
+
+    assert_ne!(ciphertext, plaintext.as_bytes());
+    assert_ne!(ciphertext, Vec::<u8>::new());
+    assert_eq!(nonce.len(), 12);
+
+    let decrypted = vault.decrypt(&ciphertext, &nonce).unwrap();
+    assert_eq!(decrypted, plaintext);
+}
+
+#[tokio::test]
+async fn test_vault_decrypt_with_wrong_key_fails() {
+    use patroclus::vault::Vault;
+
+    let vault1 = Vault::new(b"correct-key").unwrap();
+    let vault2 = Vault::new(b"wrong-key").unwrap();
+
+    let (ciphertext, nonce) = vault1.encrypt("secret-token").unwrap();
+    assert!(vault2.decrypt(&ciphertext, &nonce).is_err());
+}
+
+#[tokio::test]
+async fn test_vault_store_and_retrieve_credential() {
+    let server = harness::TestServer::new().unwrap();
+    let vault = server.state.vault.as_ref().unwrap();
+
+    let (_, principal_id) = create_agent_and_principal(&server.app, "agent", "vault@test.com").await;
+    let pid = uuid::Uuid::parse_str(&principal_id).unwrap();
+
+    let (encrypted, nonce) = vault.encrypt("ghp_stored_refresh_token").unwrap();
+    let id = server
+        .state
+        .db
+        .store_vault_credential(
+            pid,
+            "github",
+            &encrypted,
+            &nonce,
+            vault.key_id(),
+            &["repo".to_string(), "read:user".to_string()],
+            None,
+        )
+        .unwrap();
+
+    assert!(id != uuid::Uuid::nil());
+
+    let record = server
+        .state
+        .db
+        .get_vault_credential(pid, "github")
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.provider, "github");
+    assert_eq!(record.scopes, vec!["repo", "read:user"]);
+
+    let decrypted = vault.decrypt(&record.encrypted_token, &record.nonce).unwrap();
+    assert_eq!(decrypted, "ghp_stored_refresh_token");
+}
+
+#[tokio::test]
+async fn test_vault_store_credential_api() {
+    let server = harness::TestServer::new().unwrap();
+    let (_, principal_id) = create_agent_and_principal(&server.app, "agent", "vault-api@test.com").await;
+
+    let (status, body) = send_request(
+        &server.app,
+        "POST",
+        "/v1/vault/credentials",
+        Some(json!({
+            "principal_id": principal_id,
+            "provider": "github",
+            "refresh_token": "ghp_my_refresh_token",
+            "scopes": ["repo", "read:user"]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["provider"], "github");
+    assert_eq!(body["stored"], true);
+    assert!(body["id"].as_str().unwrap().len() > 0);
+}
+
+#[tokio::test]
+async fn test_vault_store_and_retrieve_via_api() {
+    let server = harness::TestServer::new().unwrap();
+    let (_, principal_id) = create_agent_and_principal(&server.app, "agent", "vault-rt@test.com").await;
+
+    // Store via API
+    send_request(
+        &server.app,
+        "POST",
+        "/v1/vault/credentials",
+        Some(json!({
+            "principal_id": principal_id,
+            "provider": "slack",
+            "refresh_token": "xoxe.abc-def-ghi",
+            "scopes": ["chat:write", "channels:read"]
+        })),
+    )
+    .await;
+
+    // Retrieve via DB
+    let pid = uuid::Uuid::parse_str(&principal_id).unwrap();
+    let vault = server.state.vault.as_ref().unwrap();
+    let record = server
+        .state
+        .db
+        .get_vault_credential(pid, "slack")
+        .unwrap()
+        .unwrap();
+    let decrypted = vault.decrypt(&record.encrypted_token, &record.nonce).unwrap();
+    assert_eq!(decrypted, "xoxe.abc-def-ghi");
+    assert_eq!(record.scopes, vec!["chat:write", "channels:read"]);
+}
+
+#[tokio::test]
+async fn test_vault_vend_unknown_provider_fails() {
+    let server = harness::TestServer::new().unwrap();
+    let (_, principal_id) = create_agent_and_principal(&server.app, "agent", "vend@test.com").await;
+
+    // Store a credential for an unknown provider
+    send_request(
+        &server.app,
+        "POST",
+        "/v1/vault/credentials",
+        Some(json!({
+            "principal_id": principal_id,
+            "provider": "unknown",
+            "refresh_token": "some-token",
+            "scopes": ["read"]
+        })),
+    )
+    .await;
+
+    // Try to vend — should fail because "unknown" is not a supported provider
+    let (status, body) = send_request(
+        &server.app,
+        "POST",
+        "/v1/vault/vend",
+        Some(json!({
+            "principal_id": principal_id,
+            "provider": "unknown",
+            "requested_scopes": ["read"],
+            "agent_token_jti": "test-jti-123"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(body["error"].as_str().unwrap().contains("Unknown provider"));
+}
+
+#[tokio::test]
+async fn test_vault_vend_no_stored_credential_fails() {
+    let server = harness::TestServer::new().unwrap();
+    let (_, principal_id) = create_agent_and_principal(&server.app, "agent", "vend-nc@test.com").await;
+
+    // Try to vend without storing a credential first
+    let (status, body) = send_request(
+        &server.app,
+        "POST",
+        "/v1/vault/vend",
+        Some(json!({
+            "principal_id": principal_id,
+            "provider": "github",
+            "requested_scopes": ["repo"],
+            "agent_token_jti": "test-jti-456"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(body["error"].as_str().unwrap().contains("No stored credential"));
+}
+
+#[tokio::test]
+async fn test_vault_different_providers_isolated() {
+    let server = harness::TestServer::new().unwrap();
+    let vault = server.state.vault.as_ref().unwrap();
+    let (_, principal_id) = create_agent_and_principal(&server.app, "agent", "iso@test.com").await;
+    let pid = uuid::Uuid::parse_str(&principal_id).unwrap();
+
+    // Store GitHub credential
+    let (enc_gh, nonce_gh) = vault.encrypt("ghp_github_token").unwrap();
+    server
+        .state
+        .db
+        .store_vault_credential(pid, "github", &enc_gh, &nonce_gh, vault.key_id(), &["repo".to_string()], None)
+        .unwrap();
+
+    // Store Slack credential
+    let (enc_sl, nonce_sl) = vault.encrypt("xoxe.slack_token").unwrap();
+    server
+        .state
+        .db
+        .store_vault_credential(pid, "slack", &enc_sl, &nonce_sl, vault.key_id(), &["chat:write".to_string()], None)
+        .unwrap();
+
+    // Retrieve GitHub
+    let gh = server.state.db.get_vault_credential(pid, "github").unwrap().unwrap();
+    assert_eq!(vault.decrypt(&gh.encrypted_token, &gh.nonce).unwrap(), "ghp_github_token");
+
+    // Retrieve Slack
+    let sl = server.state.db.get_vault_credential(pid, "slack").unwrap().unwrap();
+    assert_eq!(vault.decrypt(&sl.encrypted_token, &sl.nonce).unwrap(), "xoxe.slack_token");
+
+    // GitHub should not return Slack token
+    assert_ne!(
+        vault.decrypt(&gh.encrypted_token, &gh.nonce).unwrap(),
+        vault.decrypt(&sl.encrypted_token, &sl.nonce).unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_e2e_agent_requests_access_then_vault_vends_credential() {
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let (agent_id, principal_id) =
+        create_agent_and_principal(&server.app, "agent", "e2e-vault@test.com").await;
+
+    // Store a GitHub credential for the principal
+    let pid = uuid::Uuid::parse_str(&principal_id).unwrap();
+    let vault = server.state.vault.as_ref().unwrap();
+    let (enc, nonce) = vault.encrypt("ghp_refresh_for_e2e").unwrap();
+    server
+        .state
+        .db
+        .store_vault_credential(pid, "github", &enc, &nonce, vault.key_id(), &["repo".to_string()], None)
+        .unwrap();
+
+    // Agent requests access — should get a token
+    let (_, body) = send_request(
+        &server.app,
+        "POST",
+        "/v1/agent/request-access",
+        Some(json!({
+            "agent_id": agent_id,
+            "action": "read",
+            "resource": "github/repos",
+            "requested_scopes": ["github:read"]
+        })),
+    )
+    .await;
+    assert_eq!(body["decision"], "allow");
+    let jti = body["token"]["jti"].as_str().unwrap();
+    assert!(jti.len() > 0);
+
+    // Verify the credential is stored and retrievable (the vend would call GitHub's API)
+    let record = server.state.db.get_vault_credential(pid, "github").unwrap().unwrap();
+    let decrypted = vault.decrypt(&record.encrypted_token, &record.nonce).unwrap();
+    assert_eq!(decrypted, "ghp_refresh_for_e2e");
+}
