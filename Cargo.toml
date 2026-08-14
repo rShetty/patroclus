@@ -30,3 +30,7 @@ base64 = "0.22"
 rand = "0.8"
 rsa = { version = "0.9", features = ["sha2", "pem"] }
 serde_yaml = "0.9"
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tempfile = "3"

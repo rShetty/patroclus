@@ -36,6 +36,12 @@ impl YamlEngine {
         YamlEngine { rules: Vec::new() }
     }
 
+    pub fn from_yaml(yaml: &str) -> Result<Self> {
+        let mut engine = YamlEngine::new();
+        engine.load_from_str(yaml)?;
+        Ok(engine)
+    }
+
     pub fn load_from_str(&mut self, yaml: &str) -> Result<()> {
         let parsed: Vec<Rule> = serde_yaml::from_str(yaml)
             .map_err(|e| PatroclusError::Config(format!("YAML policy parse error: {}", e)))?;
@@ -91,6 +97,13 @@ fn match_pattern(pattern: &str, value: &str) -> bool {
     }
     if pattern.ends_with(":*") {
         let prefix = &pattern[..pattern.len() - 1];
+        return value.starts_with(prefix);
+    }
+    if pattern.ends_with("-*") {
+        let prefix = &pattern[..pattern.len() - 1];
+        return value.starts_with(prefix);
+    }
+    if let Some(prefix) = pattern.strip_suffix("*") {
         return value.starts_with(prefix);
     }
     false

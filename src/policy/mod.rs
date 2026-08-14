@@ -51,9 +51,15 @@ pub trait PolicyEngine: Send + Sync {
     fn evaluate(&self, ctx: &PolicyContext) -> Result<PolicyEvaluation>;
 }
 
-pub fn create_engine(engine_type: &str) -> Result<Box<dyn PolicyEngine>> {
+pub fn create_engine(engine_type: &str, policy_yaml: Option<&str>) -> Result<Box<dyn PolicyEngine>> {
     match engine_type {
-        "yaml" => Ok(Box::new(yaml_engine::YamlEngine::new())),
+        "yaml" => {
+            if let Some(yaml) = policy_yaml {
+                Ok(Box::new(yaml_engine::YamlEngine::from_yaml(yaml)?))
+            } else {
+                Ok(Box::new(yaml_engine::YamlEngine::new()))
+            }
+        }
         other => Err(PatroclusError::NotImplemented(format!(
             "policy engine '{}' not yet implemented",
             other

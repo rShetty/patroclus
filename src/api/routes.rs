@@ -4,6 +4,7 @@ use axum::{
     routing::{get, post},
     Json,
 };
+use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -12,7 +13,7 @@ use crate::audit::CreateAuditEntry;
 use crate::errors::PatroclusError;
 use crate::gateway::{AccessRequest, AccessResponse};
 use crate::identity::{CreateAgentRequest, CreatePrincipalRequest};
-use crate::policy::{Decision, PolicyContext, PolicyEvaluation};
+use crate::policy::{Decision, PolicyContext};
 use crate::token::IssueTokenParams;
 
 type MethodRouter = axum::routing::MethodRouter<AppState>;
@@ -26,6 +27,15 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
         ("/v1/agent/request-access".to_string(), post(request_access)),
         ("/v1/agent/check".to_string(), post(check_access)),
         ("/v1/agent/delegate".to_string(), post(delegate)),
+        ("/v1/agent/approval-status/{id}".to_string(), get(approval_status)),
+
+        // Principal-facing
+        ("/v1/principal/delegate".to_string(), post(principal_delegate)),
+        ("/v1/principal/grants".to_string(), get(list_principal_grants)),
+        ("/v1/principal/grants/{id}/revoke".to_string(), post(revoke_grant)),
+        ("/v1/principal/approvals".to_string(), get(list_pending_approvals)),
+        ("/v1/principal/approvals/{id}/approve".to_string(), post(approve_request)),
+        ("/v1/principal/approvals/{id}/deny".to_string(), post(deny_request)),
 
         // Admin — Agents
         ("/v1/admin/agents".to_string(), post(create_agent).get(list_agents)),
@@ -34,8 +44,17 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
         // Admin — Principals
         ("/v1/admin/principals".to_string(), post(create_principal)),
 
+        // Admin — Resources
+        ("/v1/admin/resources".to_string(), post(create_resource).get(list_resources)),
+
+        // Admin — Policies
+        ("/v1/admin/policies".to_string(), post(create_policy).get(list_policies)),
+
         // Admin — Audit
         ("/v1/admin/audit".to_string(), get(list_audit)),
+
+        // Admin — Token revocation
+        ("/v1/admin/tokens/{jti}/revoke".to_string(), post(revoke_token)),
     ]
 }
 
@@ -43,13 +62,16 @@ async fn health() -> (StatusCode, Json<serde_json::Value>) {
     (StatusCode::OK, Json(serde_json::json!({ "status": "ok", "service": "patroclus" })))
 }
 
+// ── Agent-facing routes ───────────────────────────────────────────
+
 async fn request_access(
     State(state): State<AppState>,
     Json(req): Json<AccessRequest>,
 ) -> Result<Json<AccessResponse>, PatroclusError> {
     let agent = state.db.get_agent(req.agent_id)?;
-    let principal = if let Some(_token) = &req.delegation_token {
-        None
+    let principal = if let Some(token) = &req.delegation_token {
+        let claims = state.token_verifier.verify(token, None)?;
+        state.db.get_principal_by_email(&claims.sub.replace("user:", ""))
     } else {
         agent.owner_id.and_then(|oid| state.db.get_principal(oid).ok())
     };
@@ -65,10 +87,9 @@ async fn request_access(
     };
 
     let eval = state.policy_engine.evaluate(&ctx)?;
-
     let mut response = AccessResponse::from(eval.clone());
 
-    match eval.decision {
+    match &eval.decision {
         Decision::Allow => {
             let params = IssueTokenParams {
                 issuer: state.config.token.issuer.clone(),
@@ -93,23 +114,49 @@ async fn request_access(
                 },
             };
 
-            let jwt = state.token_issuer.issue(&params)?;
-            let jti = extract_jti(&jwt);
+            let (jwt, jti) = state.token_issuer.issue(&params)?;
+            let expires_at = params.expiry();
+
+            state.db.record_token(
+                &jti,
+                None,
+                agent.id,
+                &eval.approved_scopes,
+                &req.resource,
+                expires_at,
+            )?;
 
             response.token = Some(crate::gateway::IssuedTokenInfo {
                 jwt,
-                expires_at: params.expiry(),
+                expires_at,
                 scopes: eval.approved_scopes.clone(),
-                jti: jti.clone(),
+                jti,
+            });
+        }
+        Decision::RequireApproval { .. } => {
+            let resource_id = state.db.find_resource_by_uri(&req.resource)
+                .ok()
+                .flatten()
+                .unwrap_or(Uuid::nil());
+            let approval = state.db.create_approval_request(
+                agent.id,
+                principal.as_ref().map(|p| p.id),
+                resource_id,
+                &req.action,
+                &req.requested_scopes,
+                300,
+            )?;
+            response.approval = Some(crate::gateway::ApprovalInfo {
+                request_id: approval.id,
+                status: "pending".to_string(),
             });
         }
         Decision::Deny => {}
-        Decision::RequireApproval { .. } => {}
     }
 
     let audit = CreateAuditEntry {
         agent_id: agent.id,
-        principal_id: principal.map(|p| p.id),
+        principal_id: principal.as_ref().map(|p| p.id),
         action: req.action,
         resource: req.resource,
         decision: eval.decision.clone(),
@@ -143,18 +190,216 @@ async fn check_access(
 
     Ok(Json(serde_json::json!({
         "allowed": matches!(eval.decision, Decision::Allow),
-        "decision": format!("{:?}", eval.decision).to_lowercase(),
+        "decision": match eval.decision {
+            Decision::Allow => "allow",
+            Decision::Deny => "deny",
+            Decision::RequireApproval { .. } => "require_approval",
+        },
         "approved_scopes": eval.approved_scopes,
         "reason": eval.reason,
     })))
 }
 
 async fn delegate(
-    State(_state): State<AppState>,
-    Json(_req): Json<crate::gateway::DelegateRequest>,
+    State(state): State<AppState>,
+    Json(req): Json<crate::gateway::DelegateRequest>,
 ) -> Result<Json<crate::gateway::DelegateResponse>, PatroclusError> {
-    Err(PatroclusError::NotImplemented("delegation flow".to_string()))
+    let parent_claims = state.token_verifier.verify(&req.parent_grant_token, None)?;
+    let parent_scopes: Vec<String> = parent_claims.scope.split_whitespace()
+        .map(|s| s.to_string())
+        .collect();
+
+    for scope in &req.scopes {
+        if !parent_scopes.contains(scope) {
+            return Err(PatroclusError::ScopeEscalation {
+                requested: scope.clone(),
+                parent: parent_claims.scope.clone(),
+            });
+        }
+    }
+
+    let max_depth = state.config.policy.max_delegation_depth;
+    let new_depth = parent_claims.act.delegation_depth + 1;
+    if new_depth > max_depth {
+        return Err(PatroclusError::DelegationDepthExceeded {
+            max: max_depth,
+            actual: new_depth,
+        });
+    }
+
+    let parent_expiry = chrono::DateTime::from_timestamp(parent_claims.exp, 0)
+        .unwrap_or_else(|| Utc::now());
+    let requested_expiry = Utc::now() + Duration::seconds(req.expires_in_seconds as i64);
+    let effective_expiry = parent_expiry.min(requested_expiry);
+    let effective_ttl = (effective_expiry - Utc::now()).num_seconds().max(0) as u64;
+
+    let mut delegation_chain = parent_claims.act.delegation_chain.unwrap_or_default();
+    delegation_chain.push(crate::token::DelegationHop {
+        sub: parent_claims.sub.clone(),
+        act: parent_claims.act.sub.clone(),
+    });
+
+    let params = IssueTokenParams {
+        issuer: state.config.token.issuer.clone(),
+        subject: parent_claims.sub.clone(),
+        agent_id: format!("agent:{}", req.sub_agent_id),
+        scopes: req.scopes.clone(),
+        audience: parent_claims.aud.clone(),
+        ttl_seconds: effective_ttl,
+        delegation_depth: new_depth,
+        delegation_chain: Some(delegation_chain),
+        constraints: parent_claims.constraints.clone(),
+    };
+
+    let (jwt, _jti) = state.token_issuer.issue(&params)?;
+
+    Ok(Json(crate::gateway::DelegateResponse {
+        delegated_token: jwt,
+        expires_at: effective_expiry,
+        scopes: req.scopes,
+    }))
 }
+
+async fn approval_status(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<crate::approval::ApprovalRequest>, PatroclusError> {
+    let req = state.db.get_approval_request(id)?;
+    Ok(Json(req))
+}
+
+// ── Principal-facing routes ───────────────────────────────────────
+
+#[derive(Deserialize)]
+struct PrincipalDelegateRequest {
+    agent_id: Uuid,
+    scopes: Vec<String>,
+    constraints: Option<serde_json::Value>,
+    expires_in_seconds: u64,
+}
+
+async fn principal_delegate(
+    State(state): State<AppState>,
+    Json(req): Json<PrincipalDelegateRequest>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let agent = state.db.get_agent(req.agent_id)?;
+    if agent.owner_id.is_none() {
+        return Err(PatroclusError::AgentNotFound(
+            "agent has no owner principal".to_string(),
+        ));
+    }
+    let principal_id = agent.owner_id.unwrap();
+    let principal = state.db.get_principal(principal_id)?;
+
+    let expires_at = Utc::now() + Duration::seconds(req.expires_in_seconds as i64);
+    let grant_id = state.db.create_grant(
+        agent.id,
+        principal_id,
+        None,
+        &req.scopes,
+        req.constraints.as_ref(),
+        expires_at,
+    )?;
+
+    let params = IssueTokenParams {
+        issuer: state.config.token.issuer.clone(),
+        subject: format!("user:{}", principal.email),
+        agent_id: format!("agent:{}", agent.id),
+        scopes: req.scopes.clone(),
+        audience: format!("agent:{}", agent.id),
+        ttl_seconds: req.expires_in_seconds.min(state.config.token.max_ttl_seconds),
+        delegation_depth: 0,
+        delegation_chain: None,
+        constraints: req.constraints.clone(),
+    };
+
+    let (jwt, jti) = state.token_issuer.issue(&params)?;
+
+    state.db.record_token(
+        &jti,
+        Some(grant_id),
+        agent.id,
+        &req.scopes,
+        &format!("agent:{}", agent.id),
+        expires_at,
+    )?;
+
+    Ok(Json(serde_json::json!({
+        "grant_id": grant_id,
+        "delegation_token": jwt,
+        "scopes": req.scopes,
+        "expires_at": expires_at,
+    })))
+}
+
+async fn list_principal_grants(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let grants = state.db.list_all_grants()?;
+    Ok(Json(serde_json::json!({ "grants": grants })))
+}
+
+#[derive(Deserialize)]
+struct RevokeGrantRequest {
+    #[serde(default)]
+    cascade: bool,
+}
+
+async fn revoke_grant(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(_req): Json<RevokeGrantRequest>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let revoked = state.db.revoke_grant(id)?;
+    Ok(Json(serde_json::json!({
+        "revoked_grants": revoked,
+        "count": revoked.len(),
+    })))
+}
+
+async fn list_pending_approvals(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::approval::ApprovalRequest>>, PatroclusError> {
+    let approvals = state.db.list_pending_approvals()?;
+    Ok(Json(approvals))
+}
+
+#[derive(Deserialize)]
+struct ApproveRequest {
+    approver_id: Uuid,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+async fn approve_request(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ApproveRequest>,
+) -> Result<Json<crate::approval::ApprovalRequest>, PatroclusError> {
+    let approval = state.db.resolve_approval_request(
+        id,
+        req.approver_id,
+        true,
+        req.reason.as_deref(),
+    )?;
+    Ok(Json(approval))
+}
+
+async fn deny_request(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ApproveRequest>,
+) -> Result<Json<crate::approval::ApprovalRequest>, PatroclusError> {
+    let approval = state.db.resolve_approval_request(
+        id,
+        req.approver_id,
+        false,
+        req.reason.as_deref(),
+    )?;
+    Ok(Json(approval))
+}
+
+// ── Admin routes ──────────────────────────────────────────────────
 
 async fn create_agent(
     State(state): State<AppState>,
@@ -187,6 +432,55 @@ async fn create_principal(
     Ok(Json(principal))
 }
 
+async fn create_resource(
+    State(state): State<AppState>,
+    Json(req): Json<crate::resource::CreateResourceRequest>,
+) -> Result<Json<crate::resource::Resource>, PatroclusError> {
+    let resource = state.db.create_resource(&req)?;
+    Ok(Json(resource))
+}
+
+async fn list_resources(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::resource::Resource>>, PatroclusError> {
+    let resources = state.db.list_resources()?;
+    Ok(Json(resources))
+}
+
+#[derive(Deserialize)]
+struct CreatePolicyRequest {
+    name: String,
+    engine: String,
+    definition: String,
+}
+
+async fn create_policy(
+    State(state): State<AppState>,
+    Json(req): Json<CreatePolicyRequest>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    state.db.create_policy(&req.name, &req.engine, &req.definition)?;
+    Ok(Json(serde_json::json!({ "status": "created" })))
+}
+
+async fn list_policies(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let policies = state.db.list_policies()?;
+    let result: Vec<serde_json::Value> = policies
+        .into_iter()
+        .map(|(id, name, engine, status, definition)| {
+            serde_json::json!({
+                "id": id,
+                "name": name,
+                "engine": engine,
+                "status": status,
+                "definition": definition,
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "policies": result })))
+}
+
 async fn list_audit(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<crate::audit::AuditEntry>>, PatroclusError> {
@@ -194,18 +488,11 @@ async fn list_audit(
     Ok(Json(entries))
 }
 
-fn extract_jti(jwt: &str) -> String {
-    let parts: Vec<&str> = jwt.split('.').collect();
-    if parts.len() != 3 {
-        return Uuid::now_v7().to_string();
-    }
-    use base64::Engine;
-    if let Ok(payload) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]) {
-        if let Ok(claims) = serde_json::from_slice::<serde_json::Value>(&payload) {
-            if let Some(jti) = claims.get("jti") {
-                return jti.as_str().unwrap_or_default().to_string();
-            }
-        }
-    }
-    Uuid::now_v7().to_string()
+async fn revoke_token(
+    State(state): State<AppState>,
+    Path(jti): Path<String>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    state.db.revoke_token(&jti)?;
+    state.token_verifier.revoke(&jti);
+    Ok(Json(serde_json::json!({ "revoked": jti })))
 }

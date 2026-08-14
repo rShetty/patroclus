@@ -34,7 +34,7 @@ impl TokenIssuer {
         })
     }
 
-    pub fn issue(&self, params: &IssueTokenParams) -> Result<String> {
+    pub fn issue(&self, params: &IssueTokenParams) -> Result<(String, String)> {
         let now = Utc::now();
         let jti = Uuid::now_v7().to_string();
         let exp = params.expiry().timestamp();
@@ -51,7 +51,7 @@ impl TokenIssuer {
             aud: params.audience.clone(),
             exp,
             iat: now.timestamp(),
-            jti,
+            jti: jti.clone(),
             constraints: params.constraints.clone(),
             cnf: None,
         };
@@ -59,8 +59,9 @@ impl TokenIssuer {
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(self.key_id.clone());
 
-        jsonwebtoken::encode(&header, &claims, &self.encoding_key)
-            .map_err(|e| PatroclusError::Crypto(format!("token encoding failed: {}", e)))
+        let token = jsonwebtoken::encode(&header, &claims, &self.encoding_key)
+            .map_err(|e| PatroclusError::Crypto(format!("token encoding failed: {}", e)))?;
+        Ok((token, jti))
     }
 }
 

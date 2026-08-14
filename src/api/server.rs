@@ -1,9 +1,4 @@
-use std::sync::Arc;
-
-use axum::{
-    routing::{get, post},
-    Json, Router,
-};
+use axum::Router;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::api::state::AppState;
@@ -22,7 +17,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn create_router(state: AppState) -> Router {
+pub fn create_router(state: AppState) -> Router {
     let routes = super::routes::all_routes();
 
     let mut router = Router::new();

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::config::Config;
+use crate::crypto::KeyPair;
 use crate::db::Database;
 use crate::policy::PolicyEngine;
 use crate::token::issuer::TokenIssuer;
@@ -20,34 +21,65 @@ impl AppState {
         let db = Database::new(&config.database.path)?;
         db.create_default_policy()?;
 
-        let policy_engine = crate::policy::create_engine(&config.policy.engine)?;
+        let policy_yaml = db.load_active_policy_yaml()?;
+        let policy_yaml_ref = if policy_yaml.is_empty() { None } else { Some(policy_yaml.as_str()) };
+        let policy_engine: Arc<dyn PolicyEngine> = Arc::from(
+            crate::policy::create_engine(&config.policy.engine, policy_yaml_ref)?
+        );
 
-        let private_key = std::fs::read_to_string(&config.token.private_key_path).unwrap_or_else(|_| {
-            tracing::warn!("No private key found at {}, generating ephemeral key", config.token.private_key_path);
-            String::new()
-        });
+        let keypair = KeyPair::load_or_generate(
+            &config.token.private_key_path,
+            &config.token.public_key_path,
+        )?;
 
-        let public_key = std::fs::read_to_string(&config.token.public_key_path).unwrap_or_else(|_| {
-            String::new()
-        });
+        let token_issuer = Arc::new(TokenIssuer::from_pem(
+            &keypair.private_pem,
+            &config.token.issuer,
+            "key-1",
+        )?);
 
-        let token_issuer = if private_key.is_empty() {
-            tracing::warn!("Using ephemeral key for token issuance — not for production");
-            Arc::new(TokenIssuer::ephemeral(&config.token.issuer)?)
-        } else {
-            Arc::new(TokenIssuer::from_pem(&private_key, &config.token.issuer, "key-1")?)
-        };
-
-        let token_verifier = if public_key.is_empty() {
-            Arc::new(TokenVerifier::ephemeral(&config.token.issuer)?)
-        } else {
-            Arc::new(TokenVerifier::from_pem(&public_key, &config.token.issuer)?)
-        };
+        let token_verifier = Arc::new(TokenVerifier::from_pem(
+            &keypair.public_pem,
+            &config.token.issuer,
+        )?);
 
         Ok(AppState {
             db: Arc::new(db),
             config: Arc::new(config),
-            policy_engine: policy_engine.into(),
+            policy_engine,
+            token_issuer,
+            token_verifier,
+        })
+    }
+
+    pub fn new_test() -> anyhow::Result<Self> {
+        let config = Config::default();
+        let db = Database::new(":memory:")?;
+        db.create_default_policy()?;
+
+        let policy_yaml = db.load_active_policy_yaml()?;
+        let policy_yaml_ref = if policy_yaml.is_empty() { None } else { Some(policy_yaml.as_str()) };
+        let policy_engine: Arc<dyn PolicyEngine> = Arc::from(
+            crate::policy::create_engine(&config.policy.engine, policy_yaml_ref)?
+        );
+
+        let keypair = KeyPair::generate()?;
+
+        let token_issuer = Arc::new(TokenIssuer::from_pem(
+            &keypair.private_pem,
+            &config.token.issuer,
+            "test-key",
+        )?);
+
+        let token_verifier = Arc::new(TokenVerifier::from_pem(
+            &keypair.public_pem,
+            &config.token.issuer,
+        )?);
+
+        Ok(AppState {
+            db: Arc::new(db),
+            config: Arc::new(config),
+            policy_engine,
             token_issuer,
             token_verifier,
         })

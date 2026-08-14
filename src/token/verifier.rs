@@ -37,6 +37,7 @@ impl TokenVerifier {
     pub fn verify(&self, token: &str, expected_audience: Option<&str>) -> Result<AgentClaims> {
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_issuer(&[&self.issuer]);
+        validation.validate_aud = expected_audience.is_some();
         if let Some(aud) = expected_audience {
             validation.set_audience(&[aud]);
         }
