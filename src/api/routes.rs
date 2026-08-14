@@ -119,7 +119,7 @@ async fn request_access(
         trajectory: session.trajectory.clone(),
     };
 
-    let eval = state.policy_engine.evaluate(&ctx)?;
+    let eval = state.eval_engine(&ctx)?;
     let mut response = AccessResponse::from(eval.clone());
 
     match &eval.decision {
@@ -229,7 +229,7 @@ async fn check_access(
         trajectory: Vec::new(),
     };
 
-    let eval = state.policy_engine.evaluate(&ctx)?;
+    let eval = state.eval_engine(&ctx)?;
 
     Ok(Json(serde_json::json!({
         "allowed": matches!(eval.decision, Decision::Allow),
@@ -502,7 +502,10 @@ async fn create_policy(
     Json(req): Json<CreatePolicyRequest>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
     state.db.create_policy(&req.name, &req.engine, &req.definition)?;
-    Ok(Json(serde_json::json!({ "status": "created" })))
+    state.reload_policy().map_err(|e| PatroclusError::Config(e.to_string()))?;
+    tracing::info!("Policy '{}' created and hot-reloaded", req.name);
+
+    Ok(Json(serde_json::json!({ "status": "created", "reloaded": true })))
 }
 
 async fn list_policies(

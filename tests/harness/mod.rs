@@ -4,7 +4,6 @@ use patroclus::api::state::AppState;
 use patroclus::config::Config;
 use patroclus::session::SessionStore;
 use std::sync::Arc;
-
 pub struct TestServer {
     pub app: Router,
     pub state: AppState,
@@ -20,18 +19,7 @@ impl TestServer {
     pub fn new_with_policy(yaml: &str) -> anyhow::Result<Self> {
         let state = AppState::new_test()?;
         state.db.create_policy("test", "yaml", yaml)?;
-        let yaml = state.db.load_active_policy_yaml()?;
-        let session_store = state.session_store.clone();
-        let engine = patroclus::policy::create_engine_with_sessions("yaml", Some(&yaml), session_store)?;
-        let state = AppState {
-            db: state.db.clone(),
-            config: state.config.clone(),
-            policy_engine: Arc::from(engine),
-            token_issuer: state.token_issuer.clone(),
-            token_verifier: state.token_verifier.clone(),
-            vault: state.vault.clone(),
-            session_store: state.session_store.clone(),
-        };
+        state.reload_policy()?;
         let app = create_router(state.clone());
         Ok(TestServer { app, state })
     }

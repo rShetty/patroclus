@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use parking_lot::RwLock;
+
 use crate::config::Config;
 use crate::crypto::KeyPair;
 use crate::db::Database;
@@ -13,7 +15,7 @@ use crate::vault::Vault;
 pub struct AppState {
     pub db: Arc<Database>,
     pub config: Arc<Config>,
-    pub policy_engine: Arc<dyn PolicyEngine>,
+    pub policy_engine: Arc<RwLock<Arc<dyn PolicyEngine>>>,
     pub token_issuer: Arc<TokenIssuer>,
     pub token_verifier: Arc<TokenVerifier>,
     pub vault: Option<Arc<Vault>>,
@@ -27,15 +29,7 @@ impl AppState {
 
         let session_store = Arc::new(SessionStore::new());
 
-        let policy_yaml = db.load_active_policy_yaml()?;
-        let policy_yaml_ref = if policy_yaml.is_empty() { None } else { Some(policy_yaml.as_str()) };
-        let policy_engine: Arc<dyn PolicyEngine> = Arc::from(
-            crate::policy::create_engine_with_sessions(
-                &config.policy.engine,
-                policy_yaml_ref,
-                session_store.clone(),
-            )?,
-        );
+        let policy_engine = Self::build_engine(&config, &db, &session_store)?;
 
         let keypair = KeyPair::load_or_generate(
             &config.token.private_key_path,
@@ -70,7 +64,7 @@ impl AppState {
         Ok(AppState {
             db: Arc::new(db),
             config: Arc::new(config),
-            policy_engine,
+            policy_engine: Arc::new(RwLock::new(policy_engine)),
             token_issuer,
             token_verifier,
             vault,
@@ -85,15 +79,7 @@ impl AppState {
 
         let session_store = Arc::new(SessionStore::new());
 
-        let policy_yaml = db.load_active_policy_yaml()?;
-        let policy_yaml_ref = if policy_yaml.is_empty() { None } else { Some(policy_yaml.as_str()) };
-        let policy_engine: Arc<dyn PolicyEngine> = Arc::from(
-            crate::policy::create_engine_with_sessions(
-                &config.policy.engine,
-                policy_yaml_ref,
-                session_store.clone(),
-            )?,
-        );
+        let policy_engine = Self::build_engine(&config, &db, &session_store)?;
 
         let keypair = KeyPair::generate()?;
 
@@ -113,11 +99,39 @@ impl AppState {
         Ok(AppState {
             db: Arc::new(db),
             config: Arc::new(config),
-            policy_engine,
+            policy_engine: Arc::new(RwLock::new(policy_engine)),
             token_issuer,
             token_verifier,
             vault: Some(vault),
             session_store,
         })
+    }
+
+    fn build_engine(
+        config: &Config,
+        db: &Database,
+        session_store: &Arc<SessionStore>,
+    ) -> anyhow::Result<Arc<dyn PolicyEngine>> {
+        let policy_yaml = db.load_active_policy_yaml()?;
+        let yaml_ref = if policy_yaml.is_empty() { None } else { Some(policy_yaml.as_str()) };
+        let engine = crate::policy::create_engine_with_sessions(
+            &config.policy.engine,
+            yaml_ref,
+            session_store.clone(),
+        )?;
+        Ok(Arc::from(engine))
+    }
+
+    pub fn reload_policy(&self) -> anyhow::Result<()> {
+        let engine = Self::build_engine(&self.config, &self.db, &self.session_store)?;
+        let mut guard = self.policy_engine.write();
+        *guard = engine;
+        tracing::info!("Policy engine reloaded");
+        Ok(())
+    }
+
+    pub fn eval_engine(&self, ctx: &crate::policy::PolicyContext) -> crate::errors::Result<crate::policy::PolicyEvaluation> {
+        let guard = self.policy_engine.read();
+        guard.evaluate(ctx)
     }
 }
