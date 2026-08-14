@@ -20,6 +20,8 @@ type MethodRouter = axum::routing::MethodRouter<AppState>;
 
 pub fn all_routes() -> Vec<(String, MethodRouter)> {
     vec![
+        // Dashboard
+        ("/".to_string(), get(dashboard)),
         // Health
         ("/health".to_string(), get(health)),
         // Agent-facing
@@ -108,6 +110,10 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
         ("/v1/idp/userinfo".to_string(), post(idp_userinfo)),
         ("/v1/idp/providers".to_string(), get(list_idp_providers)),
     ]
+}
+
+async fn dashboard() -> (StatusCode, String) {
+    (StatusCode::OK, crate::dashboard::dashboard_html())
 }
 
 async fn health() -> (StatusCode, Json<serde_json::Value>) {

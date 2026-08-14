@@ -3,6 +3,7 @@ pub mod approval;
 pub mod audit;
 pub mod config;
 pub mod crypto;
+pub mod dashboard;
 pub mod db;
 pub mod errors;
 pub mod gateway;
