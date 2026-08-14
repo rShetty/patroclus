@@ -208,10 +208,6 @@ async fn test_trust_level_starts_at_full() {
 
 #[tokio::test]
 async fn test_trust_decay_blocks_after_idle() {
-    use chrono::{Duration, Utc};
-    use patroclus::session::SessionStore;
-    use std::sync::Arc;
-
     let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
     let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "decay@test.com").await;
     let mut agent = AgentHarness::new(&agent_id, "").with_session("decay-session");
@@ -227,7 +223,7 @@ async fn test_trust_decay_blocks_after_idle() {
         // The session store is in-memory, we can't directly manipulate time,
         // but we can test the trust decay logic by calling apply_trust_decay_all
         // with a session that we manually age
-        let store = &server.state.session_store;
+        let _store = &server.state.session_store;
         // Force the session's last_activity to be 30 minutes ago
         // This tests the trust decay mechanism
         // Since SessionStore is in-memory and private, we test via the API

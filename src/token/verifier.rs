@@ -1,6 +1,5 @@
-use chrono::{DateTime, Duration, Utc};
+use chrono::Utc;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
-use serde::{Deserialize, Serialize};
 
 use crate::errors::{PatroclusError, Result};
 use crate::token::AgentClaims;
@@ -13,7 +12,7 @@ pub struct TokenVerifier {
 
 impl TokenVerifier {
     pub fn ephemeral(issuer: &str) -> Result<Self> {
-        use rsa::pkcs1::{EncodeRsaPrivateKey, EncodeRsaPublicKey};
+        use rsa::pkcs1::EncodeRsaPublicKey;
         let mut rng = rand::thread_rng();
         let priv_key = rsa::RsaPrivateKey::new(&mut rng, 2048)
             .map_err(|e| PatroclusError::Crypto(format!("key generation failed: {}", e)))?;

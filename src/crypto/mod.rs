@@ -1,5 +1,4 @@
 use rsa::pkcs1::{EncodeRsaPrivateKey, EncodeRsaPublicKey};
-use rsa::traits::PublicKeyParts;
 
 use crate::errors::{PatroclusError, Result};
 

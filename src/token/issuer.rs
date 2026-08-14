@@ -14,7 +14,7 @@ pub struct TokenIssuer {
 impl TokenIssuer {
     pub fn ephemeral(issuer: &str) -> Result<Self> {
         use rsa::pkcs1::EncodeRsaPrivateKey;
-        use rsa::traits::PublicKeyParts;
+
         let mut rng = rand::thread_rng();
         let priv_key = rsa::RsaPrivateKey::new(&mut rng, 2048)
             .map_err(|e| PatroclusError::Crypto(format!("key generation failed: {}", e)))?;

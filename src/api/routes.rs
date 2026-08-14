@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
 };
 use chrono::{Duration, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::api::state::AppState;
@@ -320,7 +320,7 @@ async fn delegate(
     }
 
     let parent_expiry =
-        chrono::DateTime::from_timestamp(parent_claims.exp, 0).unwrap_or_else(|| Utc::now());
+        chrono::DateTime::from_timestamp(parent_claims.exp, 0).unwrap_or_else(Utc::now);
     let requested_expiry = Utc::now() + Duration::seconds(req.expires_in_seconds as i64);
     let effective_expiry = parent_expiry.min(requested_expiry);
     let effective_ttl = (effective_expiry - Utc::now()).num_seconds().max(0) as u64;
@@ -436,6 +436,7 @@ async fn list_principal_grants(
 #[derive(Deserialize)]
 struct RevokeGrantRequest {
     #[serde(default)]
+    #[allow(dead_code)]
     cascade: bool,
 }
 

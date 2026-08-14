@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
 use parking_lot::RwLock;
@@ -7,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::errors::{PatroclusError, Result};
-use crate::policy::{Decision, TrajectoryEvent};
+#[cfg(test)]
+use crate::policy::Decision;
+use crate::policy::TrajectoryEvent;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
@@ -104,6 +105,12 @@ pub struct SessionStore {
 struct RateLimitState {
     window_start: DateTime<Utc>,
     count: u64,
+}
+
+impl Default for SessionStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SessionStore {

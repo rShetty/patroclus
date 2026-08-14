@@ -1,9 +1,7 @@
+#![allow(dead_code)]
 use axum::Router;
 use patroclus::api::server::create_router;
 use patroclus::api::state::AppState;
-use patroclus::config::Config;
-use patroclus::session::SessionStore;
-use std::sync::Arc;
 pub struct TestServer {
     pub app: Router,
     pub state: AppState,
@@ -82,7 +80,7 @@ impl AgentHarness {
             body["delegation_token"] = json!(token);
         }
 
-        let (status, resp) =
+        let (_status, resp) =
             send_request(app, "POST", "/v1/agent/request-access", Some(body)).await;
         self.actions_taken.push(format!("{}:{}", action, resource));
 

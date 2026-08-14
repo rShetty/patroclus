@@ -31,7 +31,7 @@ impl IdpFederation {
     ) -> Result<String> {
         let client = reqwest::Client::new();
 
-        let mut params = vec![
+        let params = vec![
             ("grant_type".to_string(), "authorization_code".to_string()),
             ("code".to_string(), authorization_code.to_string()),
             ("redirect_uri".to_string(), redirect_uri.to_string()),
@@ -41,7 +41,7 @@ impl IdpFederation {
         ];
 
         let resp = client
-            .post(&format!("{}/token", provider.issuer))
+            .post(format!("{}/token", provider.issuer))
             .form(&params)
             .send()
             .await
@@ -74,7 +74,7 @@ impl IdpFederation {
         let client = reqwest::Client::new();
 
         let resp = client
-            .get(&format!("{}/userinfo", provider.issuer))
+            .get(format!("{}/userinfo", provider.issuer))
             .header("Authorization", format!("Bearer {}", access_token))
             .send()
             .await

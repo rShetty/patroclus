@@ -11,6 +11,7 @@ pub struct YamlEngine {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct Rule {
+    #[allow(dead_code)]
     name: String,
     #[serde(default)]
     agent_types: Vec<String>,
@@ -24,6 +25,7 @@ struct Rule {
     #[serde(default)]
     reason: String,
     #[serde(default)]
+    #[allow(dead_code)]
     require_approval_from: Option<String>,
     #[serde(default)]
     constraints: Vec<ConstraintDef>,
@@ -43,6 +45,12 @@ struct Rule {
 struct ConstraintDef {
     key: String,
     value: serde_json::Value,
+}
+
+impl Default for YamlEngine {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl YamlEngine {
@@ -122,32 +130,32 @@ impl YamlEngine {
                 return Some("Session has been killed by emergency stop".to_string());
             }
 
-            if let Some(max_actions) = rule.max_actions_in_session {
-                if session.actions_count >= max_actions {
-                    return Some(format!(
-                        "Max actions in session exceeded ({} >= {})",
-                        session.actions_count, max_actions
-                    ));
-                }
+            if let Some(max_actions) = rule.max_actions_in_session
+                && session.actions_count >= max_actions
+            {
+                return Some(format!(
+                    "Max actions in session exceeded ({} >= {})",
+                    session.actions_count, max_actions
+                ));
             }
 
-            if let Some(max_spend) = rule.max_spend {
-                if session.cumulative_spend() >= max_spend {
-                    return Some(format!(
-                        "Session spend cap exceeded ($ {:.2} >= $ {:.2})",
-                        session.cumulative_spend(),
-                        max_spend
-                    ));
-                }
+            if let Some(max_spend) = rule.max_spend
+                && session.cumulative_spend() >= max_spend
+            {
+                return Some(format!(
+                    "Session spend cap exceeded ($ {:.2} >= $ {:.2})",
+                    session.cumulative_spend(),
+                    max_spend
+                ));
             }
 
-            if let Some(min_trust) = rule.min_trust_level {
-                if !session.is_allowed_by_trust(min_trust) {
-                    return Some(format!(
-                        "Trust level too low ({:.2} < {:.2}) — session may have been idle",
-                        session.trust_level, min_trust
-                    ));
-                }
+            if let Some(min_trust) = rule.min_trust_level
+                && !session.is_allowed_by_trust(min_trust)
+            {
+                return Some(format!(
+                    "Trust level too low ({:.2} < {:.2}) — session may have been idle",
+                    session.trust_level, min_trust
+                ));
             }
 
             if let Some(required_prior) = &rule.require_prior_action {
@@ -168,12 +176,12 @@ impl YamlEngine {
     }
 
     fn check_rate_limit(&self, rule: &Rule, ctx: &PolicyContext) -> Option<String> {
-        if let Some(max_per_min) = rule.rate_limit_per_minute {
-            if let (Some(store), Some(sid)) = (&self.session_store, &ctx.session_id) {
-                let key = format!("{}:{}:{}", sid, ctx.action, ctx.resource);
-                if let Err(e) = store.check_rate_limit(&key, max_per_min) {
-                    return Some(e.to_string());
-                }
+        if let Some(max_per_min) = rule.rate_limit_per_minute
+            && let (Some(store), Some(sid)) = (&self.session_store, &ctx.session_id)
+        {
+            let key = format!("{}:{}:{}", sid, ctx.action, ctx.resource);
+            if let Err(e) = store.check_rate_limit(&key, max_per_min) {
+                return Some(e.to_string());
             }
         }
         None

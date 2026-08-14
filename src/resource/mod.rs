@@ -2,8 +2,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::identity::AgentType;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Resource {
     pub id: Uuid,

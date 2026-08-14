@@ -83,7 +83,7 @@ pub fn create_engine_with_sessions(
 ) -> Result<Box<dyn PolicyEngine>> {
     match engine_type {
         "yaml" => {
-            let mut engine = if let Some(yaml) = policy_yaml {
+            let engine = if let Some(yaml) = policy_yaml {
                 yaml_engine::YamlEngine::from_yaml(yaml)?
             } else {
                 yaml_engine::YamlEngine::new()

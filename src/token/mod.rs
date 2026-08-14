@@ -1,9 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
-use crate::errors::{PatroclusError, Result};
 
 pub mod issuer;
 pub mod verifier;

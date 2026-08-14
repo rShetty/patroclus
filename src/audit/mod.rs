@@ -34,10 +34,10 @@ impl AuditEntry {
         hasher.update(self.decision.as_bytes());
         hasher.update(self.reason.as_bytes());
         hasher.update(self.timestamp.to_rfc3339().as_bytes());
-        if let Some(chain) = &self.delegation_chain {
-            if let Ok(s) = serde_json::to_string(chain) {
-                hasher.update(s.as_bytes());
-            }
+        if let Some(chain) = &self.delegation_chain
+            && let Ok(s) = serde_json::to_string(chain)
+        {
+            hasher.update(s.as_bytes());
         }
         if let Some(jti) = &self.token_jti {
             hasher.update(jti.as_bytes());

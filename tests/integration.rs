@@ -157,7 +157,7 @@ async fn test_create_agent() {
     assert_eq!(body["name"], "test-agent");
     assert_eq!(body["principal_type"], "delegated");
     assert_eq!(body["status"], "active");
-    assert!(body["id"].as_str().unwrap().len() > 0);
+    assert!(!body["id"].as_str().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -273,10 +273,10 @@ async fn test_policy_allow_issues_token() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["decision"], "allow");
     assert!(body["token"].is_object());
-    assert!(body["token"]["jwt"].as_str().unwrap().len() > 0);
-    assert!(body["token"]["jti"].as_str().unwrap().len() > 0);
+    assert!(!body["token"]["jwt"].as_str().unwrap().is_empty());
+    assert!(!body["token"]["jti"].as_str().unwrap().is_empty());
     assert_eq!(body["token"]["scopes"], json!(["db:read"]));
-    assert!(body["token"]["expires_at"].as_str().unwrap().len() > 0);
+    assert!(!body["token"]["expires_at"].as_str().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -340,7 +340,7 @@ async fn test_policy_require_approval_for_prod_write() {
     assert_eq!(body["decision"], "require_approval");
     assert!(body["approval"].is_object());
     assert_eq!(body["approval"]["status"], "pending");
-    assert!(body["approval"]["request_id"].as_str().unwrap().len() > 0);
+    assert!(!body["approval"]["request_id"].as_str().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -432,7 +432,7 @@ async fn test_audit_log_hash_chain_integrity() {
     )
     .await;
 
-    let (status, body) = send_request(&server.app, "GET", "/v1/admin/audit", None).await;
+    let (_status, body) = send_request(&server.app, "GET", "/v1/admin/audit", None).await;
     let entries = body.as_array().unwrap();
     assert!(!entries.is_empty());
 
@@ -481,7 +481,7 @@ async fn test_issued_token_is_verifiable() {
         .unwrap();
     assert_eq!(claims.scope, "db:read");
     assert_eq!(claims.aud, "dev-db");
-    assert!(claims.jti.len() > 0);
+    assert!(!claims.jti.is_empty());
     assert!(claims.exp > claims.iat);
 }
 
@@ -587,8 +587,8 @@ async fn test_principal_delegates_scoped_permissions() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body["delegation_token"].as_str().unwrap().len() > 0);
-    assert!(body["grant_id"].as_str().unwrap().len() > 0);
+    assert!(!body["delegation_token"].as_str().unwrap().is_empty());
+    assert!(!body["grant_id"].as_str().unwrap().is_empty());
     assert_eq!(
         body["scopes"],
         json!(["calendar:read", "calendar:create_event"])
@@ -732,14 +732,14 @@ async fn test_delegation_depth_limit() {
     let mut current_token = body["delegation_token"].as_str().unwrap().to_string();
 
     // Default max_delegation_depth is 3 — so depth 1, 2, 3 should succeed
-    for i in 1..=3 {
+    for (i, agent_id) in agent_ids.iter().enumerate().take(4).skip(1) {
         let (status, body) = send_request(
             &server.app,
             "POST",
             "/v1/agent/delegate",
             Some(json!({
                 "parent_grant_token": current_token,
-                "sub_agent_id": agent_ids[i],
+                "sub_agent_id": agent_id,
                 "scopes": ["calendar:read"],
                 "expires_in_seconds": 1800
             })),
@@ -860,7 +860,7 @@ async fn test_revoke_grant_cascades_to_children() {
     let child1_token = body["delegated_token"].as_str().unwrap();
 
     // Create child 2 grant from child 1 (depth 2)
-    let (_, body) = send_request(
+    let (_, _body) = send_request(
         &server.app,
         "POST",
         "/v1/agent/delegate",
@@ -1135,7 +1135,7 @@ async fn test_create_and_list_policies() {
     let (status, body) = send_request(&server.app, "GET", "/v1/admin/policies", None).await;
     assert_eq!(status, StatusCode::OK);
     let policies = body["policies"].as_array().unwrap();
-    assert!(policies.len() >= 1);
+    assert!(!policies.is_empty());
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1192,7 +1192,7 @@ async fn test_e2e_delegation_then_access() {
     )
     .await;
     let delegation_token = body["delegation_token"].as_str().unwrap();
-    assert!(delegation_token.len() > 0);
+    assert!(!delegation_token.is_empty());
 
     // Step 2: Agent uses delegation token to request access
     let (status, body) = send_request(
@@ -1366,7 +1366,7 @@ async fn test_vault_store_credential_api() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["provider"], "github");
     assert_eq!(body["stored"], true);
-    assert!(body["id"].as_str().unwrap().len() > 0);
+    assert!(!body["id"].as_str().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1578,7 +1578,7 @@ async fn test_e2e_agent_requests_access_then_vault_vends_credential() {
     .await;
     assert_eq!(body["decision"], "allow");
     let jti = body["token"]["jti"].as_str().unwrap();
-    assert!(jti.len() > 0);
+    assert!(!jti.is_empty());
 
     // Verify the credential is stored and retrievable (the vend would call GitHub's API)
     let record = server

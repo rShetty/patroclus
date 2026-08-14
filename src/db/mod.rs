@@ -349,6 +349,7 @@ impl Database {
         Ok(())
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn list_policies(&self) -> Result<Vec<(Uuid, String, String, String, String)>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
@@ -655,7 +656,7 @@ impl Database {
             params![now, id.to_string()],
         )?;
         revoked.push(id);
-        let mut children: Vec<String> = conn
+        let children: Vec<String> = conn
             .prepare("SELECT id FROM grants WHERE parent_grant_id = ? AND revoked_at IS NULL")?
             .query_map(params![id.to_string()], |row| row.get::<_, String>(0))?
             .filter_map(|r| r.ok())
@@ -879,6 +880,7 @@ impl Database {
 
     // ── Vault credential management ────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     pub fn store_vault_credential(
         &self,
         principal_id: Uuid,
