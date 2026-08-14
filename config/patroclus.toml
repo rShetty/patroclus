@@ -1,0 +1,21 @@
+[server]
+host = "0.0.0.0"
+port = 8484
+
+[database]
+path = "/var/lib/patroclus/patroclus.db"
+
+[token]
+issuer = "http://localhost:8484"
+private_key_path = "/etc/patroclus/keys/private.pem"
+public_key_path = "/etc/patroclus/keys/public.pem"
+default_ttl_seconds = 900
+max_ttl_seconds = 3600
+
+[policy]
+engine = "yaml"
+default_decision = "deny"
+max_delegation_depth = 3
+
+[vault]
+encryption_key_path = "/etc/patroclus/keys/vault.key"

@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -8,6 +7,8 @@ pub struct Config {
     pub token: TokenConfig,
     pub policy: PolicyConfig,
     pub vault: VaultConfig,
+    #[serde(default)]
+    pub idp: IdpConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +43,26 @@ pub struct VaultConfig {
     pub encryption_key_path: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct IdpConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub providers: Vec<IdpProvider>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdpProvider {
+    pub name: String,
+    pub issuer: String,
+    pub client_id: String,
+    pub client_secret: String,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    #[serde(default)]
+    pub group_claim: String,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -67,14 +88,14 @@ impl Default for Config {
             vault: VaultConfig {
                 encryption_key_path: "keys/vault.key".to_string(),
             },
+            idp: IdpConfig::default(),
         }
     }
 }
 
 impl Config {
-    pub fn load<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+    pub fn load<P: AsRef<std::path::Path>>(path: P) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&content)?;
-        Ok(config)
+        Ok(toml::from_str(&content)?)
     }
 }

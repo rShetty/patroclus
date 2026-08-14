@@ -68,6 +68,12 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
         // Kill switch — emergency stop for agent
         ("/v1/admin/agents/{id}/kill".to_string(), post(kill_agent)),
         ("/v1/admin/agents/{id}/spend".to_string(), post(record_spend)),
+
+        // IdP Federation
+        ("/v1/idp/authorize/{provider}".to_string(), get(idp_authorize)),
+        ("/v1/idp/callback".to_string(), get(idp_callback)),
+        ("/v1/idp/userinfo".to_string(), post(idp_userinfo)),
+        ("/v1/idp/providers".to_string(), get(list_idp_providers)),
     ]
 }
 
@@ -725,5 +731,119 @@ async fn record_spend(
         "session_id": session_id,
         "spend_recorded": req.amount,
         "cumulative_spend": session.map(|s| s.cumulative_spend()).unwrap_or(req.amount),
+    })))
+}
+
+// ── IdP Federation routes ─────────────────────────────────────────
+
+async fn idp_authorize(
+    State(state): State<AppState>,
+    Path(provider_name): Path<String>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let provider = state.config.idp.providers.iter()
+        .find(|p| p.name == provider_name)
+        .ok_or_else(|| PatroclusError::Config(format!("IdP provider '{}' not configured", provider_name)))?;
+
+    let redirect_uri = format!("{}/v1/idp/callback", state.config.token.issuer);
+    let state_param = uuid::Uuid::now_v7().to_string();
+    let code_verifier = uuid::Uuid::now_v7().to_string();
+
+    let auth_url = crate::idp::IdpFederation::authorization_url(
+        provider,
+        &redirect_uri,
+        &state_param,
+        &code_verifier,
+    );
+
+    Ok(Json(serde_json::json!({
+        "authorization_url": auth_url,
+        "state": state_param,
+        "code_verifier": code_verifier,
+        "provider": provider_name,
+    })))
+}
+
+#[derive(Deserialize)]
+struct IdpCallbackQuery {
+    code: String,
+    state: String,
+}
+
+async fn idp_callback(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<IdpCallbackQuery>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    if !state.config.idp.enabled || state.config.idp.providers.is_empty() {
+        return Err(PatroclusError::Config("IdP federation not enabled".to_string()));
+    }
+
+    let provider = &state.config.idp.providers[0];
+    let redirect_uri = format!("{}/v1/idp/callback", state.config.token.issuer);
+
+    let access_token = crate::idp::IdpFederation::exchange_oidc_token(
+        provider,
+        &params.code,
+        &redirect_uri,
+        &params.state,
+    )
+    .await?;
+
+    let user_info = crate::idp::IdpFederation::fetch_userinfo(provider, &access_token).await?;
+
+    let principal = state.db.get_principal_by_email(&user_info.email);
+    let principal_id = if let Some(p) = principal {
+        p.id
+    } else {
+        state.db.create_principal(&crate::identity::CreatePrincipalRequest {
+            external_id: user_info.subject.clone(),
+            idp_provider: provider.name.clone(),
+            email: user_info.email.clone(),
+            display_name: user_info.name.unwrap_or_else(|| user_info.email.clone()),
+        })?.id
+    };
+
+    Ok(Json(serde_json::json!({
+        "authenticated": true,
+        "principal_id": principal_id,
+        "email": user_info.email,
+        "groups": user_info.groups,
+        "issuer": user_info.issuer,
+    })))
+}
+
+#[derive(Deserialize)]
+struct IdpUserInfoRequest {
+    provider: String,
+    access_token: String,
+}
+
+async fn idp_userinfo(
+    State(state): State<AppState>,
+    Json(req): Json<IdpUserInfoRequest>,
+) -> Result<Json<crate::idp::IdpUserInfo>, PatroclusError> {
+    let provider = state.config.idp.providers.iter()
+        .find(|p| p.name == req.provider)
+        .ok_or_else(|| PatroclusError::Config(format!("IdP provider '{}' not found", req.provider)))?;
+
+    let user_info = crate::idp::IdpFederation::fetch_userinfo(provider, &req.access_token).await?;
+    Ok(Json(user_info))
+}
+
+async fn list_idp_providers(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let providers: Vec<serde_json::Value> = state.config.idp.providers.iter().map(|p| {
+        serde_json::json!({
+            "name": p.name,
+            "issuer": p.issuer,
+            "client_id": p.client_id,
+            "scopes": p.scopes,
+            "group_claim": p.group_claim,
+        })
+    }).collect();
+
+    Ok(Json(serde_json::json!({
+        "enabled": state.config.idp.enabled,
+        "providers": providers,
     })))
 }

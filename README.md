@@ -90,6 +90,18 @@ short-lived scoped credential is issued or a human approval is triggered.
 - **Per-tool authorization** — each MCP `tools/call` checked against policy
 - **Fail-closed** — if Patroclus is unreachable, tool calls are denied
 
+### IdP Federation
+- **OIDC integration** — Okta, Azure AD, Google Workspace, Auth0, any OIDC provider
+- **Group-based policy mapping** — IdP groups map to Patroclus policies (e.g., "Engineering" group → dev access policy)
+- **Token exchange** — RFC 8693 token exchange from IdP token → Patroclus delegation token
+- **Auto-provisioning** — principals auto-created on first IdP login
+
+### Agent Supply Chain Security
+- **Forge integration** — [Forge](https://github.com/rShetty/forge) verifies agent
+  signatures, generates SBOMs, scans for vulnerabilities, and calculates trust scores
+- **Trust-based policies** — Patroclus policies can reference Forge trust scores (min_trust_score)
+- **Blocking** — agents with critical vulnerabilities are blocked from registration
+
 ## Architecture
 
 ```
@@ -280,6 +292,9 @@ Patroclus is part of a four-project agent governance ecosystem:
 | **Patroclus** | Authorization infrastructure — is the agent allowed to do this |
 | [Relay](https://github.com/rShetty/relay) | MCP gateway & tool proxy — route the agent's tool calls |
 | [Miser](https://github.com/rShetty/miser) | Cost optimization — which model is cheapest for this |
+| [Sentiel](https://github.com/rShetty/sentiel) | Observability, DLP & compliance — what are agents doing? |
+| [Aegis](https://github.com/rShetty/Aegis) | Network egress & attestation — is the agent's network safe? |
+| [Forge](https://github.com/rShetty/forge) | Agent supply chain security — is the agent code trusted? |
 
 See [docs/ECOSYSTEM_PLAN.md](docs/ECOSYSTEM_PLAN.md) for the full integration plan.
 
