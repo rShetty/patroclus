@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  patroclus:
+    build: .
+    ports:
+      - "8484:8484"
+    volumes:
+      - patroclus-data:/app/data
+      - patroclus-keys:/app/keys
+      - ./config.toml:/app/config.toml:ro
+    environment:
+      - RUST_LOG=patroclus=info,tower_http=info
+    restart: unless-stopped
+
+  relay:
+    image: ghcr.io/rshetty/relay:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - RELAY_ENVIRONMENT=development
+      - RELAY_ALLOW_DEFAULT_SECRET=1
+      - PATROCLUS_ENABLED=true
+      - PATROCLUS_URL=http://patroclus:8484
+    depends_on:
+      - patroclus
+    restart: unless-stopped
+
+volumes:
+  patroclus-data:
+  patroclus-keys:
