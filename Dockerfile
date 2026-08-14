@@ -9,6 +9,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates && rm -rf /var/lib/apt/lists/*
 
+RUN useradd --system --home-dir /app --create-home --shell /usr/sbin/nologin patroclus
 WORKDIR /app
 COPY --from=builder /app/target/release/patroclus /app/patroclus
 
@@ -20,5 +21,6 @@ ENV PATROCLUS_PRIVATE_KEY_PATH=/app/keys/private.pem
 ENV PATROCLUS_PUBLIC_KEY_PATH=/app/keys/public.pem
 ENV PATROCLUS_VAULT_KEY_PATH=/app/keys/vault.key
 
+USER patroclus
 ENTRYPOINT ["/app/patroclus"]
 CMD ["serve", "--config", "/app/config.toml"]

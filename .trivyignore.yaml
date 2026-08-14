@@ -1,0 +1,5 @@
+---
+version: 2
+misconfigurations:
+  - id: DS-0031
+  - id: DS-0002
