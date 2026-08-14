@@ -485,21 +485,7 @@ action.innerHTML='<div class="form-row"><div class="form-group"><label>External 
 }else if(step===2){
 action.innerHTML='<div class="form-row"><div class="form-group"><label>Agent Name</label><input id="g2-name" value="guided-agent"></div><div class="form-group"><label>Type</label><select id="g2-type"><option value="autonomous">autonomous</option></select></div><div class="form-group"><label>Owner ID</label><input id="g2-owner" value="'+state.guidedPrincipalId+'" readonly></div></div><div class="form-actions"><button class="btn btn-blue" onclick="guidedStep2()">Create Agent</button></div>';
 }else if(step===3){
-action.innerHTML='<div class="form-row"><div class="form-group"><label>Policy Name</label><input id="g3-name" value="guided-policy"></div></div><div class="form-group"><label>Definition</label><textarea id="g3-def">- name: allow-read
-  agent_types: ["autonomous"]
-  actions: ["read"]
-  resources: ["documents/*"]
-  decision: allow
-- name: require-approval-write
-  agent_types: ["autonomous"]
-  actions: ["write"]
-  resources: ["documents/*"]
-  decision: require_approval
-- name: deny-delete
-  agent_types: ["autonomous"]
-  actions: ["delete"]
-  resources: ["*"]
-  decision: deny</textarea></div><div class="form-actions"><button class="btn btn-blue" onclick="guidedStep3()">Create Policy</button></div>';
+action.innerHTML='<div class="form-row"><div class="form-group"><label>Policy Name</label><input id="g3-name" value="guided-policy"></div></div><div class="form-group"><label>Definition</label><textarea id="g3-def">- name: allow-read\n  agent_types: ["autonomous"]\n  actions: ["read"]\n  resources: ["documents/*"]\n  decision: allow\n- name: require-approval-write\n  agent_types: ["autonomous"]\n  actions: ["write"]\n  resources: ["documents/*"]\n  decision: require_approval\n- name: deny-delete\n  agent_types: ["autonomous"]\n  actions: ["delete"]\n  resources: ["*"]\n  decision: deny</textarea></div><div class="form-actions"><button class="btn btn-blue" onclick="guidedStep3()">Create Policy</button></div>';
 }else if(step===4){
 action.innerHTML='<div class="form-row"><div class="form-group"><label>Agent ID</label><input id="g4-agent" value="'+state.guidedAgentId+'" readonly></div><div class="form-group"><label>Scopes</label><input id="g4-scopes" value="documents:read,documents:write"></div><div class="form-group"><label>TTL (s)</label><input id="g4-ttl" type="number" value="900"></div></div><div class="form-actions"><button class="btn btn-blue" onclick="guidedStep4()">Delegate Scopes</button></div>';
 }else if(step===5){
