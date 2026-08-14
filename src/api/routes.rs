@@ -1,8 +1,8 @@
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
     routing::{get, post},
-    Json,
 };
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -22,55 +22,88 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
     vec![
         // Health
         ("/health".to_string(), get(health)),
-
         // Agent-facing
         ("/v1/agent/request-access".to_string(), post(request_access)),
         ("/v1/agent/check".to_string(), post(check_access)),
         ("/v1/agent/delegate".to_string(), post(delegate)),
-        ("/v1/agent/approval-status/{id}".to_string(), get(approval_status)),
-
+        (
+            "/v1/agent/approval-status/{id}".to_string(),
+            get(approval_status),
+        ),
         // Principal-facing
-        ("/v1/principal/delegate".to_string(), post(principal_delegate)),
-        ("/v1/principal/grants".to_string(), get(list_principal_grants)),
-        ("/v1/principal/grants/{id}/revoke".to_string(), post(revoke_grant)),
-        ("/v1/principal/approvals".to_string(), get(list_pending_approvals)),
-        ("/v1/principal/approvals/{id}/approve".to_string(), post(approve_request)),
-        ("/v1/principal/approvals/{id}/deny".to_string(), post(deny_request)),
-
+        (
+            "/v1/principal/delegate".to_string(),
+            post(principal_delegate),
+        ),
+        (
+            "/v1/principal/grants".to_string(),
+            get(list_principal_grants),
+        ),
+        (
+            "/v1/principal/grants/{id}/revoke".to_string(),
+            post(revoke_grant),
+        ),
+        (
+            "/v1/principal/approvals".to_string(),
+            get(list_pending_approvals),
+        ),
+        (
+            "/v1/principal/approvals/{id}/approve".to_string(),
+            post(approve_request),
+        ),
+        (
+            "/v1/principal/approvals/{id}/deny".to_string(),
+            post(deny_request),
+        ),
         // Admin — Agents
-        ("/v1/admin/agents".to_string(), post(create_agent).get(list_agents)),
+        (
+            "/v1/admin/agents".to_string(),
+            post(create_agent).get(list_agents),
+        ),
         ("/v1/admin/agents/{id}".to_string(), get(get_agent)),
-
         // Admin — Principals
         ("/v1/admin/principals".to_string(), post(create_principal)),
-
         // Admin — Resources
-        ("/v1/admin/resources".to_string(), post(create_resource).get(list_resources)),
-
+        (
+            "/v1/admin/resources".to_string(),
+            post(create_resource).get(list_resources),
+        ),
         // Admin — Policies
-        ("/v1/admin/policies".to_string(), post(create_policy).get(list_policies)),
-
+        (
+            "/v1/admin/policies".to_string(),
+            post(create_policy).get(list_policies),
+        ),
         // Admin — Audit
         ("/v1/admin/audit".to_string(), get(list_audit)),
-
         // Admin — Token revocation
-        ("/v1/admin/tokens/{jti}/revoke".to_string(), post(revoke_token)),
-
+        (
+            "/v1/admin/tokens/{jti}/revoke".to_string(),
+            post(revoke_token),
+        ),
         // Vault — credential storage and vending
-        ("/v1/vault/credentials".to_string(), post(store_credential).get(list_vault_credentials)),
+        (
+            "/v1/vault/credentials".to_string(),
+            post(store_credential).get(list_vault_credentials),
+        ),
         ("/v1/vault/vend".to_string(), post(vend_credential)),
-        ("/v1/vault/generate-key".to_string(), post(generate_vault_key)),
-
+        (
+            "/v1/vault/generate-key".to_string(),
+            post(generate_vault_key),
+        ),
         // Session management
         ("/v1/sessions".to_string(), get(list_sessions)),
         ("/v1/sessions/{id}/kill".to_string(), post(kill_session)),
-
         // Kill switch — emergency stop for agent
         ("/v1/admin/agents/{id}/kill".to_string(), post(kill_agent)),
-        ("/v1/admin/agents/{id}/spend".to_string(), post(record_spend)),
-
+        (
+            "/v1/admin/agents/{id}/spend".to_string(),
+            post(record_spend),
+        ),
         // IdP Federation
-        ("/v1/idp/authorize/{provider}".to_string(), get(idp_authorize)),
+        (
+            "/v1/idp/authorize/{provider}".to_string(),
+            get(idp_authorize),
+        ),
         ("/v1/idp/callback".to_string(), get(idp_callback)),
         ("/v1/idp/userinfo".to_string(), post(idp_userinfo)),
         ("/v1/idp/providers".to_string(), get(list_idp_providers)),
@@ -78,7 +111,10 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
 }
 
 async fn health() -> (StatusCode, Json<serde_json::Value>) {
-    (StatusCode::OK, Json(serde_json::json!({ "status": "ok", "service": "patroclus" })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "ok", "service": "patroclus" })),
+    )
 }
 
 // ── Agent-facing routes ───────────────────────────────────────────
@@ -90,12 +126,18 @@ async fn request_access(
     let agent = state.db.get_agent(req.agent_id)?;
     let principal = if let Some(token) = &req.delegation_token {
         let claims = state.token_verifier.verify(token, None)?;
-        state.db.get_principal_by_email(&claims.sub.replace("user:", ""))
+        state
+            .db
+            .get_principal_by_email(&claims.sub.replace("user:", ""))
     } else {
-        agent.owner_id.and_then(|oid| state.db.get_principal(oid).ok())
+        agent
+            .owner_id
+            .and_then(|oid| state.db.get_principal(oid).ok())
     };
 
-    let session_id = req.context.as_ref()
+    let session_id = req
+        .context
+        .as_ref()
         .and_then(|c| c.session_id.clone())
         .unwrap_or_else(|| format!("agent-{}-default", agent.id));
 
@@ -173,9 +215,7 @@ async fn request_access(
             });
         }
         Decision::RequireApproval { .. } => {
-            let resource_id = state.db.find_resource_by_uri(&req.resource)
-                .ok()
-                .flatten();
+            let resource_id = state.db.find_resource_by_uri(&req.resource).ok().flatten();
             let approval = state.db.create_approval_request(
                 agent.id,
                 principal.as_ref().map(|p| p.id),
@@ -222,7 +262,9 @@ async fn check_access(
     Json(req): Json<AccessRequest>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
     let agent = state.db.get_agent(req.agent_id)?;
-    let principal = agent.owner_id.and_then(|oid| state.db.get_principal(oid).ok());
+    let principal = agent
+        .owner_id
+        .and_then(|oid| state.db.get_principal(oid).ok());
 
     let ctx = PolicyContext {
         agent: agent.clone(),
@@ -253,7 +295,9 @@ async fn delegate(
     Json(req): Json<crate::gateway::DelegateRequest>,
 ) -> Result<Json<crate::gateway::DelegateResponse>, PatroclusError> {
     let parent_claims = state.token_verifier.verify(&req.parent_grant_token, None)?;
-    let parent_scopes: Vec<String> = parent_claims.scope.split_whitespace()
+    let parent_scopes: Vec<String> = parent_claims
+        .scope
+        .split_whitespace()
         .map(|s| s.to_string())
         .collect();
 
@@ -275,8 +319,8 @@ async fn delegate(
         });
     }
 
-    let parent_expiry = chrono::DateTime::from_timestamp(parent_claims.exp, 0)
-        .unwrap_or_else(|| Utc::now());
+    let parent_expiry =
+        chrono::DateTime::from_timestamp(parent_claims.exp, 0).unwrap_or_else(|| Utc::now());
     let requested_expiry = Utc::now() + Duration::seconds(req.expires_in_seconds as i64);
     let effective_expiry = parent_expiry.min(requested_expiry);
     let effective_ttl = (effective_expiry - Utc::now()).num_seconds().max(0) as u64;
@@ -355,7 +399,9 @@ async fn principal_delegate(
         agent_id: format!("agent:{}", agent.id),
         scopes: req.scopes.clone(),
         audience: format!("agent:{}", agent.id),
-        ttl_seconds: req.expires_in_seconds.min(state.config.token.max_ttl_seconds),
+        ttl_seconds: req
+            .expires_in_seconds
+            .min(state.config.token.max_ttl_seconds),
         delegation_depth: 0,
         delegation_chain: None,
         constraints: req.constraints.clone(),
@@ -424,12 +470,10 @@ async fn approve_request(
     Path(id): Path<Uuid>,
     Json(req): Json<ApproveRequest>,
 ) -> Result<Json<crate::approval::ApprovalRequest>, PatroclusError> {
-    let approval = state.db.resolve_approval_request(
-        id,
-        req.approver_id,
-        true,
-        req.reason.as_deref(),
-    )?;
+    let approval =
+        state
+            .db
+            .resolve_approval_request(id, req.approver_id, true, req.reason.as_deref())?;
     Ok(Json(approval))
 }
 
@@ -438,12 +482,10 @@ async fn deny_request(
     Path(id): Path<Uuid>,
     Json(req): Json<ApproveRequest>,
 ) -> Result<Json<crate::approval::ApprovalRequest>, PatroclusError> {
-    let approval = state.db.resolve_approval_request(
-        id,
-        req.approver_id,
-        false,
-        req.reason.as_deref(),
-    )?;
+    let approval =
+        state
+            .db
+            .resolve_approval_request(id, req.approver_id, false, req.reason.as_deref())?;
     Ok(Json(approval))
 }
 
@@ -506,11 +548,17 @@ async fn create_policy(
     State(state): State<AppState>,
     Json(req): Json<CreatePolicyRequest>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
-    state.db.create_policy(&req.name, &req.engine, &req.definition)?;
-    state.reload_policy().map_err(|e| PatroclusError::Config(e.to_string()))?;
+    state
+        .db
+        .create_policy(&req.name, &req.engine, &req.definition)?;
+    state
+        .reload_policy()
+        .map_err(|e| PatroclusError::Config(e.to_string()))?;
     tracing::info!("Policy '{}' created and hot-reloaded", req.name);
 
-    Ok(Json(serde_json::json!({ "status": "created", "reloaded": true })))
+    Ok(Json(
+        serde_json::json!({ "status": "created", "reloaded": true }),
+    ))
 }
 
 async fn list_policies(
@@ -581,9 +629,10 @@ async fn store_credential(
 async fn list_vault_credentials(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
-    let _vault = state.vault.as_ref().ok_or_else(|| {
-        PatroclusError::Vault("Vault not initialized".to_string())
-    })?;
+    let _vault = state
+        .vault
+        .as_ref()
+        .ok_or_else(|| PatroclusError::Vault("Vault not initialized".to_string()))?;
     Ok(Json(serde_json::json!({
         "credentials": [],
         "note": "Vault credential listing requires admin authentication (not yet implemented)"
@@ -604,9 +653,10 @@ async fn vend_credential(
     State(state): State<AppState>,
     Json(req): Json<VendCredentialBody>,
 ) -> Result<Json<crate::vault::VendCredentialResponse>, PatroclusError> {
-    let vault = state.vault.as_ref().ok_or_else(|| {
-        PatroclusError::Vault("Vault not initialized".to_string())
-    })?;
+    let vault = state
+        .vault
+        .as_ref()
+        .ok_or_else(|| PatroclusError::Vault("Vault not initialized".to_string()))?;
 
     let record = state
         .db
@@ -623,16 +673,17 @@ async fn vend_credential(
     let client_id = req.client_id.unwrap_or_default();
     let client_secret = req.client_secret.unwrap_or_default();
 
-    let provider = crate::vault::providers::create_provider(&req.provider, &client_id, &client_secret)
-        .ok_or_else(|| PatroclusError::Vault(format!("Unknown provider: {}", req.provider)))?;
+    let provider =
+        crate::vault::providers::create_provider(&req.provider, &client_id, &client_secret)
+            .ok_or_else(|| PatroclusError::Vault(format!("Unknown provider: {}", req.provider)))?;
 
     let token_response = provider
         .exchange_refresh(&refresh_token, &req.requested_scopes)
         .await?;
 
-    let expires_at = token_response.expires_in.map(|secs| {
-        chrono::Utc::now() + chrono::Duration::seconds(secs as i64)
-    });
+    let expires_at = token_response
+        .expires_in
+        .map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs as i64));
 
     Ok(Json(crate::vault::VendCredentialResponse {
         provider: req.provider.clone(),
@@ -723,7 +774,9 @@ async fn record_spend(
     Path(id): Path<Uuid>,
     Json(req): Json<RecordSpendRequest>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
-    let session_id = req.session_id.unwrap_or_else(|| format!("agent-{}-default", id));
+    let session_id = req
+        .session_id
+        .unwrap_or_else(|| format!("agent-{}-default", id));
     state.session_store.record_spend(&session_id, req.amount);
     let session = state.session_store.get_session(&session_id);
     Ok(Json(serde_json::json!({
@@ -740,9 +793,15 @@ async fn idp_authorize(
     State(state): State<AppState>,
     Path(provider_name): Path<String>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
-    let provider = state.config.idp.providers.iter()
+    let provider = state
+        .config
+        .idp
+        .providers
+        .iter()
         .find(|p| p.name == provider_name)
-        .ok_or_else(|| PatroclusError::Config(format!("IdP provider '{}' not configured", provider_name)))?;
+        .ok_or_else(|| {
+            PatroclusError::Config(format!("IdP provider '{}' not configured", provider_name))
+        })?;
 
     let redirect_uri = format!("{}/v1/idp/callback", state.config.token.issuer);
     let state_param = uuid::Uuid::now_v7().to_string();
@@ -774,7 +833,9 @@ async fn idp_callback(
     axum::extract::Query(params): axum::extract::Query<IdpCallbackQuery>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
     if !state.config.idp.enabled || state.config.idp.providers.is_empty() {
-        return Err(PatroclusError::Config("IdP federation not enabled".to_string()));
+        return Err(PatroclusError::Config(
+            "IdP federation not enabled".to_string(),
+        ));
     }
 
     let provider = &state.config.idp.providers[0];
@@ -794,12 +855,15 @@ async fn idp_callback(
     let principal_id = if let Some(p) = principal {
         p.id
     } else {
-        state.db.create_principal(&crate::identity::CreatePrincipalRequest {
-            external_id: user_info.subject.clone(),
-            idp_provider: provider.name.clone(),
-            email: user_info.email.clone(),
-            display_name: user_info.name.unwrap_or_else(|| user_info.email.clone()),
-        })?.id
+        state
+            .db
+            .create_principal(&crate::identity::CreatePrincipalRequest {
+                external_id: user_info.subject.clone(),
+                idp_provider: provider.name.clone(),
+                email: user_info.email.clone(),
+                display_name: user_info.name.unwrap_or_else(|| user_info.email.clone()),
+            })?
+            .id
     };
 
     Ok(Json(serde_json::json!({
@@ -821,9 +885,15 @@ async fn idp_userinfo(
     State(state): State<AppState>,
     Json(req): Json<IdpUserInfoRequest>,
 ) -> Result<Json<crate::idp::IdpUserInfo>, PatroclusError> {
-    let provider = state.config.idp.providers.iter()
+    let provider = state
+        .config
+        .idp
+        .providers
+        .iter()
         .find(|p| p.name == req.provider)
-        .ok_or_else(|| PatroclusError::Config(format!("IdP provider '{}' not found", req.provider)))?;
+        .ok_or_else(|| {
+            PatroclusError::Config(format!("IdP provider '{}' not found", req.provider))
+        })?;
 
     let user_info = crate::idp::IdpFederation::fetch_userinfo(provider, &req.access_token).await?;
     Ok(Json(user_info))
@@ -832,15 +902,21 @@ async fn idp_userinfo(
 async fn list_idp_providers(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
-    let providers: Vec<serde_json::Value> = state.config.idp.providers.iter().map(|p| {
-        serde_json::json!({
-            "name": p.name,
-            "issuer": p.issuer,
-            "client_id": p.client_id,
-            "scopes": p.scopes,
-            "group_claim": p.group_claim,
+    let providers: Vec<serde_json::Value> = state
+        .config
+        .idp
+        .providers
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "name": p.name,
+                "issuer": p.issuer,
+                "client_id": p.client_id,
+                "scopes": p.scopes,
+                "group_claim": p.group_claim,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({
         "enabled": state.config.idp.enabled,

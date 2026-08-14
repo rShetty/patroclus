@@ -33,7 +33,10 @@ pub struct TrajectoryEvent {
 pub enum Decision {
     Allow,
     Deny,
-    RequireApproval { approver_id: Option<Uuid>, reason: String },
+    RequireApproval {
+        approver_id: Option<Uuid>,
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,7 +57,10 @@ pub trait PolicyEngine: Send + Sync {
     fn evaluate(&self, ctx: &PolicyContext) -> Result<PolicyEvaluation>;
 }
 
-pub fn create_engine(engine_type: &str, policy_yaml: Option<&str>) -> Result<Box<dyn PolicyEngine>> {
+pub fn create_engine(
+    engine_type: &str,
+    policy_yaml: Option<&str>,
+) -> Result<Box<dyn PolicyEngine>> {
     match engine_type {
         "yaml" => {
             if let Some(yaml) = policy_yaml {

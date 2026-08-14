@@ -49,7 +49,10 @@ impl AppState {
 
         let vault = match Vault::from_file(&config.vault.encryption_key_path) {
             Ok(v) => {
-                tracing::info!("Vault initialized with key from {}", config.vault.encryption_key_path);
+                tracing::info!(
+                    "Vault initialized with key from {}",
+                    config.vault.encryption_key_path
+                );
                 Some(Arc::new(v))
             }
             Err(_) => {
@@ -113,7 +116,11 @@ impl AppState {
         session_store: &Arc<SessionStore>,
     ) -> anyhow::Result<Arc<dyn PolicyEngine>> {
         let policy_yaml = db.load_active_policy_yaml()?;
-        let yaml_ref = if policy_yaml.is_empty() { None } else { Some(policy_yaml.as_str()) };
+        let yaml_ref = if policy_yaml.is_empty() {
+            None
+        } else {
+            Some(policy_yaml.as_str())
+        };
         let engine = crate::policy::create_engine_with_sessions(
             &config.policy.engine,
             yaml_ref,
@@ -130,7 +137,10 @@ impl AppState {
         Ok(())
     }
 
-    pub fn eval_engine(&self, ctx: &crate::policy::PolicyContext) -> crate::errors::Result<crate::policy::PolicyEvaluation> {
+    pub fn eval_engine(
+        &self,
+        ctx: &crate::policy::PolicyContext,
+    ) -> crate::errors::Result<crate::policy::PolicyEvaluation> {
         let guard = self.policy_engine.read();
         guard.evaluate(ctx)
     }

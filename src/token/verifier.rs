@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
 
 use crate::errors::{PatroclusError, Result};
@@ -42,12 +42,14 @@ impl TokenVerifier {
             validation.set_audience(&[aud]);
         }
 
-        let token_data = decode::<AgentClaims>(token, &self.decoding_key, &validation)
-            .map_err(|e| match e.kind() {
-                jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
-                    PatroclusError::ExpiredToken
+        let token_data =
+            decode::<AgentClaims>(token, &self.decoding_key, &validation).map_err(|e| {
+                match e.kind() {
+                    jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
+                        PatroclusError::ExpiredToken
+                    }
+                    _ => PatroclusError::InvalidToken(e.to_string()),
                 }
-                _ => PatroclusError::InvalidToken(e.to_string()),
             })?;
 
         let now = Utc::now();

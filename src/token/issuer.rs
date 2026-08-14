@@ -3,7 +3,7 @@ use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use uuid::Uuid;
 
 use crate::errors::{PatroclusError, Result};
-use crate::token::{AgentClaims, ActClaim, IssueTokenParams};
+use crate::token::{ActClaim, AgentClaims, IssueTokenParams};
 
 pub struct TokenIssuer {
     issuer: String,

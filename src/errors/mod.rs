@@ -71,19 +71,16 @@ impl From<std::io::Error> for PatroclusError {
 impl IntoResponse for PatroclusError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            PatroclusError::AgentNotFound(_) | PatroclusError::PrincipalNotFound(_) | PatroclusError::ResourceNotFound(_) => {
-                (StatusCode::NOT_FOUND, self.to_string())
-            }
-            PatroclusError::PolicyDenied { .. } => {
-                (StatusCode::FORBIDDEN, self.to_string())
-            }
-            PatroclusError::ApprovalRequired { .. } => {
-                (StatusCode::FORBIDDEN, self.to_string())
-            }
-            PatroclusError::InvalidToken(_) | PatroclusError::ExpiredToken | PatroclusError::RevokedToken(_) => {
-                (StatusCode::UNAUTHORIZED, self.to_string())
-            }
-            PatroclusError::ScopeEscalation { .. } | PatroclusError::DelegationDepthExceeded { .. } => {
+            PatroclusError::AgentNotFound(_)
+            | PatroclusError::PrincipalNotFound(_)
+            | PatroclusError::ResourceNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
+            PatroclusError::PolicyDenied { .. } => (StatusCode::FORBIDDEN, self.to_string()),
+            PatroclusError::ApprovalRequired { .. } => (StatusCode::FORBIDDEN, self.to_string()),
+            PatroclusError::InvalidToken(_)
+            | PatroclusError::ExpiredToken
+            | PatroclusError::RevokedToken(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
+            PatroclusError::ScopeEscalation { .. }
+            | PatroclusError::DelegationDepthExceeded { .. } => {
                 (StatusCode::BAD_REQUEST, self.to_string())
             }
             _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
@@ -92,4 +89,8 @@ impl IntoResponse for PatroclusError {
     }
 }
 
-use axum::{http::StatusCode, response::{IntoResponse, Response}, Json};
+use axum::{
+    Json,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};

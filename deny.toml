@@ -1,6 +1,8 @@
 [advisories]
 version = 2
-ignore = []
+ignore = [
+  "RUSTSEC-2023-0071",  # rsa 0.9.x Marvin Attack — no fixed version available
+]
 
 [licenses]
 version = 2

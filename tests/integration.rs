@@ -2,7 +2,7 @@ mod harness;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tower::ServiceExt;
 
 const ALLOW_POLICY: &str = r#"
@@ -61,7 +61,9 @@ async fn create_agent_and_principal(
         .await
         .unwrap();
     let principal: Value = serde_json::from_slice(
-        &axum::body::to_bytes(principal_resp.into_body(), usize::MAX).await.unwrap(),
+        &axum::body::to_bytes(principal_resp.into_body(), usize::MAX)
+            .await
+            .unwrap(),
     )
     .unwrap();
     let principal_id = principal["id"].as_str().unwrap().to_string();
@@ -86,7 +88,9 @@ async fn create_agent_and_principal(
         .await
         .unwrap();
     let agent: Value = serde_json::from_slice(
-        &axum::body::to_bytes(agent_resp.into_body(), usize::MAX).await.unwrap(),
+        &axum::body::to_bytes(agent_resp.into_body(), usize::MAX)
+            .await
+            .unwrap(),
     )
     .unwrap();
     let agent_id = agent["id"].as_str().unwrap().to_string();
@@ -111,11 +115,14 @@ async fn send_request(
     };
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
-    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json_val: Value = if body_bytes.is_empty() {
         json!({})
     } else {
-        serde_json::from_slice(&body_bytes).unwrap_or(json!({ "raw": String::from_utf8_lossy(&body_bytes) }))
+        serde_json::from_slice(&body_bytes)
+            .unwrap_or(json!({ "raw": String::from_utf8_lossy(&body_bytes) }))
     };
     (status, json_val)
 }
@@ -239,7 +246,10 @@ async fn test_default_deny_when_no_policy() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["decision"], "deny");
-    assert!(body["reason"].as_str().unwrap().contains("No matching") || body["reason"].as_str().unwrap().contains("default deny"));
+    assert!(
+        body["reason"].as_str().unwrap().contains("No matching")
+            || body["reason"].as_str().unwrap().contains("default deny")
+    );
     assert!(body["token"].is_null());
 }
 
@@ -464,7 +474,11 @@ async fn test_issued_token_is_verifiable() {
     .await;
 
     let jwt = body["token"]["jwt"].as_str().unwrap();
-    let claims = server.state.token_verifier.verify(jwt, Some("dev-db")).unwrap();
+    let claims = server
+        .state
+        .token_verifier
+        .verify(jwt, Some("dev-db"))
+        .unwrap();
     assert_eq!(claims.scope, "db:read");
     assert_eq!(claims.aud, "dev-db");
     assert!(claims.jti.len() > 0);
@@ -493,7 +507,13 @@ async fn test_token_revocation() {
     let jwt = body["token"]["jwt"].as_str().unwrap();
 
     // Token should verify before revocation
-    assert!(server.state.token_verifier.verify(jwt, Some("dev-db")).is_ok());
+    assert!(
+        server
+            .state
+            .token_verifier
+            .verify(jwt, Some("dev-db"))
+            .is_ok()
+    );
 
     // Revoke
     let (status, _) = send_request(
@@ -535,7 +555,10 @@ async fn test_token_audience_binding() {
     let jwt = body["token"]["jwt"].as_str().unwrap();
 
     // Verify with wrong audience should fail
-    let result = server.state.token_verifier.verify(jwt, Some("wrong-audience"));
+    let result = server
+        .state
+        .token_verifier
+        .verify(jwt, Some("wrong-audience"));
     assert!(result.is_err());
 
     // Verify with correct audience should succeed
@@ -598,8 +621,10 @@ async fn test_delegation_token_is_verifiable() {
 #[tokio::test]
 async fn test_sub_delegation_narrower_scope() {
     let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "parent-agent", "user@test.com").await;
-    let (sub_agent_id, _) = create_agent_and_principal(&server.app, "sub-agent", "sub@test.com").await;
+    let (agent_id, _) =
+        create_agent_and_principal(&server.app, "parent-agent", "user@test.com").await;
+    let (sub_agent_id, _) =
+        create_agent_and_principal(&server.app, "sub-agent", "sub@test.com").await;
 
     // Parent gets calendar:read + calendar:write
     let (_, body) = send_request(
@@ -640,8 +665,10 @@ async fn test_sub_delegation_narrower_scope() {
 #[tokio::test]
 async fn test_sub_delegation_scope_escalation_rejected() {
     let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "parent-agent", "user@test.com").await;
-    let (sub_agent_id, _) = create_agent_and_principal(&server.app, "sub-agent", "sub@test.com").await;
+    let (agent_id, _) =
+        create_agent_and_principal(&server.app, "parent-agent", "user@test.com").await;
+    let (sub_agent_id, _) =
+        create_agent_and_principal(&server.app, "sub-agent", "sub@test.com").await;
 
     // Parent gets only calendar:read
     let (_, body) = send_request(
@@ -736,7 +763,12 @@ async fn test_delegation_depth_limit() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body["error"].as_str().unwrap().contains("delegation depth exceeded"));
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("delegation depth exceeded")
+    );
 }
 
 #[tokio::test]
@@ -779,7 +811,10 @@ async fn test_sub_delegation_cannot_outlive_parent() {
     // Sub expiry should be <= parent expiry
     let parent_ts = chrono::DateTime::parse_from_rfc3339(parent_expiry).unwrap();
     let sub_ts = chrono::DateTime::parse_from_rfc3339(sub_expiry).unwrap();
-    assert!(sub_ts <= parent_ts, "sub-delegation must not outlive parent");
+    assert!(
+        sub_ts <= parent_ts,
+        "sub-delegation must not outlive parent"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1179,7 +1214,11 @@ async fn test_e2e_delegation_then_access() {
 
     // Step 3: Verify the token
     let jwt = body["token"]["jwt"].as_str().unwrap();
-    let claims = server.state.token_verifier.verify(jwt, Some("calendar/events")).unwrap();
+    let claims = server
+        .state
+        .token_verifier
+        .verify(jwt, Some("calendar/events"))
+        .unwrap();
     assert_eq!(claims.scope, "calendar:read");
 }
 
@@ -1187,7 +1226,8 @@ async fn test_e2e_delegation_then_access() {
 async fn test_e2e_multi_agent_delegation_chain() {
     let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
 
-    let (orchestrator_id, _) = create_agent_and_principal(&server.app, "orchestrator", "orch@test.com").await;
+    let (orchestrator_id, _) =
+        create_agent_and_principal(&server.app, "orchestrator", "orch@test.com").await;
     let (worker_id, _) = create_agent_and_principal(&server.app, "worker", "wkr@test.com").await;
 
     // Human delegates to orchestrator
@@ -1221,7 +1261,11 @@ async fn test_e2e_multi_agent_delegation_chain() {
     let worker_token = body["delegated_token"].as_str().unwrap();
 
     // Verify the delegation chain is recorded in the token
-    let claims = server.state.token_verifier.verify(worker_token, None).unwrap();
+    let claims = server
+        .state
+        .token_verifier
+        .verify(worker_token, None)
+        .unwrap();
     assert_eq!(claims.act.delegation_depth, 1);
     let chain = claims.act.delegation_chain.unwrap();
     assert_eq!(chain.len(), 1);
@@ -1265,7 +1309,8 @@ async fn test_vault_store_and_retrieve_credential() {
     let server = harness::TestServer::new().unwrap();
     let vault = server.state.vault.as_ref().unwrap();
 
-    let (_, principal_id) = create_agent_and_principal(&server.app, "agent", "vault@test.com").await;
+    let (_, principal_id) =
+        create_agent_and_principal(&server.app, "agent", "vault@test.com").await;
     let pid = uuid::Uuid::parse_str(&principal_id).unwrap();
 
     let (encrypted, nonce) = vault.encrypt("ghp_stored_refresh_token").unwrap();
@@ -1294,14 +1339,17 @@ async fn test_vault_store_and_retrieve_credential() {
     assert_eq!(record.provider, "github");
     assert_eq!(record.scopes, vec!["repo", "read:user"]);
 
-    let decrypted = vault.decrypt(&record.encrypted_token, &record.nonce).unwrap();
+    let decrypted = vault
+        .decrypt(&record.encrypted_token, &record.nonce)
+        .unwrap();
     assert_eq!(decrypted, "ghp_stored_refresh_token");
 }
 
 #[tokio::test]
 async fn test_vault_store_credential_api() {
     let server = harness::TestServer::new().unwrap();
-    let (_, principal_id) = create_agent_and_principal(&server.app, "agent", "vault-api@test.com").await;
+    let (_, principal_id) =
+        create_agent_and_principal(&server.app, "agent", "vault-api@test.com").await;
 
     let (status, body) = send_request(
         &server.app,
@@ -1324,7 +1372,8 @@ async fn test_vault_store_credential_api() {
 #[tokio::test]
 async fn test_vault_store_and_retrieve_via_api() {
     let server = harness::TestServer::new().unwrap();
-    let (_, principal_id) = create_agent_and_principal(&server.app, "agent", "vault-rt@test.com").await;
+    let (_, principal_id) =
+        create_agent_and_principal(&server.app, "agent", "vault-rt@test.com").await;
 
     // Store via API
     send_request(
@@ -1349,7 +1398,9 @@ async fn test_vault_store_and_retrieve_via_api() {
         .get_vault_credential(pid, "slack")
         .unwrap()
         .unwrap();
-    let decrypted = vault.decrypt(&record.encrypted_token, &record.nonce).unwrap();
+    let decrypted = vault
+        .decrypt(&record.encrypted_token, &record.nonce)
+        .unwrap();
     assert_eq!(decrypted, "xoxe.abc-def-ghi");
     assert_eq!(record.scopes, vec!["chat:write", "channels:read"]);
 }
@@ -1393,7 +1444,8 @@ async fn test_vault_vend_unknown_provider_fails() {
 #[tokio::test]
 async fn test_vault_vend_no_stored_credential_fails() {
     let server = harness::TestServer::new().unwrap();
-    let (_, principal_id) = create_agent_and_principal(&server.app, "agent", "vend-nc@test.com").await;
+    let (_, principal_id) =
+        create_agent_and_principal(&server.app, "agent", "vend-nc@test.com").await;
 
     // Try to vend without storing a credential first
     let (status, body) = send_request(
@@ -1409,7 +1461,12 @@ async fn test_vault_vend_no_stored_credential_fails() {
     )
     .await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(body["error"].as_str().unwrap().contains("No stored credential"));
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("No stored credential")
+    );
 }
 
 #[tokio::test]
@@ -1424,7 +1481,15 @@ async fn test_vault_different_providers_isolated() {
     server
         .state
         .db
-        .store_vault_credential(pid, "github", &enc_gh, &nonce_gh, vault.key_id(), &["repo".to_string()], None)
+        .store_vault_credential(
+            pid,
+            "github",
+            &enc_gh,
+            &nonce_gh,
+            vault.key_id(),
+            &["repo".to_string()],
+            None,
+        )
         .unwrap();
 
     // Store Slack credential
@@ -1432,16 +1497,40 @@ async fn test_vault_different_providers_isolated() {
     server
         .state
         .db
-        .store_vault_credential(pid, "slack", &enc_sl, &nonce_sl, vault.key_id(), &["chat:write".to_string()], None)
+        .store_vault_credential(
+            pid,
+            "slack",
+            &enc_sl,
+            &nonce_sl,
+            vault.key_id(),
+            &["chat:write".to_string()],
+            None,
+        )
         .unwrap();
 
     // Retrieve GitHub
-    let gh = server.state.db.get_vault_credential(pid, "github").unwrap().unwrap();
-    assert_eq!(vault.decrypt(&gh.encrypted_token, &gh.nonce).unwrap(), "ghp_github_token");
+    let gh = server
+        .state
+        .db
+        .get_vault_credential(pid, "github")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        vault.decrypt(&gh.encrypted_token, &gh.nonce).unwrap(),
+        "ghp_github_token"
+    );
 
     // Retrieve Slack
-    let sl = server.state.db.get_vault_credential(pid, "slack").unwrap().unwrap();
-    assert_eq!(vault.decrypt(&sl.encrypted_token, &sl.nonce).unwrap(), "xoxe.slack_token");
+    let sl = server
+        .state
+        .db
+        .get_vault_credential(pid, "slack")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        vault.decrypt(&sl.encrypted_token, &sl.nonce).unwrap(),
+        "xoxe.slack_token"
+    );
 
     // GitHub should not return Slack token
     assert_ne!(
@@ -1463,7 +1552,15 @@ async fn test_e2e_agent_requests_access_then_vault_vends_credential() {
     server
         .state
         .db
-        .store_vault_credential(pid, "github", &enc, &nonce, vault.key_id(), &["repo".to_string()], None)
+        .store_vault_credential(
+            pid,
+            "github",
+            &enc,
+            &nonce,
+            vault.key_id(),
+            &["repo".to_string()],
+            None,
+        )
         .unwrap();
 
     // Agent requests access — should get a token
@@ -1484,7 +1581,14 @@ async fn test_e2e_agent_requests_access_then_vault_vends_credential() {
     assert!(jti.len() > 0);
 
     // Verify the credential is stored and retrievable (the vend would call GitHub's API)
-    let record = server.state.db.get_vault_credential(pid, "github").unwrap().unwrap();
-    let decrypted = vault.decrypt(&record.encrypted_token, &record.nonce).unwrap();
+    let record = server
+        .state
+        .db
+        .get_vault_credential(pid, "github")
+        .unwrap()
+        .unwrap();
+    let decrypted = vault
+        .decrypt(&record.encrypted_token, &record.nonce)
+        .unwrap();
     assert_eq!(decrypted, "ghp_refresh_for_e2e");
 }

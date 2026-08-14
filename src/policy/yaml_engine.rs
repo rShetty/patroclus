@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::errors::{PatroclusError, Result};
-use crate::policy::{Constraint, Decision, PolicyContext, PolicyEvaluation, PolicyEngine};
+use crate::policy::{Constraint, Decision, PolicyContext, PolicyEngine, PolicyEvaluation};
 use crate::session::SessionStore;
 
 pub struct YamlEngine {
@@ -88,9 +88,10 @@ impl YamlEngine {
         }
 
         if !rule.resources.is_empty() {
-            let matched = rule.resources.iter().any(|pattern| {
-                match_pattern(pattern, &ctx.resource)
-            });
+            let matched = rule
+                .resources
+                .iter()
+                .any(|pattern| match_pattern(pattern, &ctx.resource));
             if !matched {
                 return false;
             }
@@ -98,7 +99,9 @@ impl YamlEngine {
 
         if !rule.scopes.is_empty() {
             let matched = ctx.requested_scopes.iter().any(|req| {
-                rule.scopes.iter().any(|allowed| match_pattern(allowed, req))
+                rule.scopes
+                    .iter()
+                    .any(|allowed| match_pattern(allowed, req))
             });
             if !matched {
                 return false;
@@ -239,7 +242,9 @@ impl PolicyEngine for YamlEngine {
                     ctx.requested_scopes
                         .iter()
                         .filter(|req| {
-                            rule.scopes.iter().any(|allowed| match_pattern(allowed, req))
+                            rule.scopes
+                                .iter()
+                                .any(|allowed| match_pattern(allowed, req))
                         })
                         .cloned()
                         .collect()

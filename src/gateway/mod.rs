@@ -64,12 +64,13 @@ impl From<PolicyEvaluation> for AccessResponse {
         let (decision, approval) = match &eval.decision {
             crate::policy::Decision::Allow => ("allow".to_string(), None),
             crate::policy::Decision::Deny => ("deny".to_string(), None),
-            crate::policy::Decision::RequireApproval { reason, .. } => {
-                ("require_approval".to_string(), Some(ApprovalInfo {
+            crate::policy::Decision::RequireApproval { reason, .. } => (
+                "require_approval".to_string(),
+                Some(ApprovalInfo {
                     request_id: Uuid::nil(),
                     status: "pending".to_string(),
-                }))
-            }
+                }),
+            ),
         };
         AccessResponse {
             decision,

@@ -107,14 +107,20 @@ async fn test_rate_limiting_independent_per_resource() {
 
     // 3 calls to api-endpoint1
     for _ in 0..3 {
-        agent.request_access(&server.app, "call", "api-endpoint1", &["api:call"]).await;
+        agent
+            .request_access(&server.app, "call", "api-endpoint1", &["api:call"])
+            .await;
     }
     // 4th to endpoint1 should fail
-    let (decision, _, _) = agent.request_access(&server.app, "call", "api-endpoint1", &["api:call"]).await;
+    let (decision, _, _) = agent
+        .request_access(&server.app, "call", "api-endpoint1", &["api:call"])
+        .await;
     assert_eq!(decision, "deny");
 
     // But call to a different resource should succeed
-    let (decision, _, _) = agent.request_access(&server.app, "call", "api-endpoint2", &["api:call"]).await;
+    let (decision, _, _) = agent
+        .request_access(&server.app, "call", "api-endpoint2", &["api:call"])
+        .await;
     assert_eq!(decision, "allow");
 }
 
@@ -129,20 +135,26 @@ async fn test_budget_cap_blocks_after_spend() {
     let mut agent = AgentHarness::new(&agent_id, "").with_session("budget-session");
 
     // First call to create session
-    agent.request_access(&server.app, "deploy", "cloud-prod", &["cloud:deploy"]).await;
+    agent
+        .request_access(&server.app, "deploy", "cloud-prod", &["cloud:deploy"])
+        .await;
 
     // Record $50 spend
     agent.record_spend(&server.app, 50.0).await;
 
     // Deploy should still be allowed (under $100 cap)
-    let (decision, _, _) = agent.request_access(&server.app, "deploy", "cloud-prod", &["cloud:deploy"]).await;
+    let (decision, _, _) = agent
+        .request_access(&server.app, "deploy", "cloud-prod", &["cloud:deploy"])
+        .await;
     assert_eq!(decision, "allow");
 
     // Record another $60 spend (total $110 > $100 cap)
     agent.record_spend(&server.app, 60.0).await;
 
     // Deploy should now be denied
-    let (decision, reason, _) = agent.request_access(&server.app, "deploy", "cloud-prod", &["cloud:deploy"]).await;
+    let (decision, reason, _) = agent
+        .request_access(&server.app, "deploy", "cloud-prod", &["cloud:deploy"])
+        .await;
     assert_eq!(decision, "deny");
     assert!(reason.contains("spend cap exceeded"), "reason: {}", reason);
 }
@@ -154,14 +166,19 @@ async fn test_spend_tracking_accumulates() {
     let mut agent = AgentHarness::new(&agent_id, "").with_session("spend-session");
 
     // First make an access request to create the session
-    agent.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
+    agent
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
 
     agent.record_spend(&server.app, 10.0).await;
     agent.record_spend(&server.app, 25.5).await;
     agent.record_spend(&server.app, 5.0).await;
 
     let sessions = AgentHarness::get_sessions(&server.app).await;
-    let session = sessions.iter().find(|s| s["session_id"] == "spend-session").unwrap();
+    let session = sessions
+        .iter()
+        .find(|s| s["session_id"] == "spend-session")
+        .unwrap();
     assert_eq!(session["spend_total"], json!(40.5));
 }
 
@@ -176,26 +193,33 @@ async fn test_trust_level_starts_at_full() {
     let mut agent = AgentHarness::new(&agent_id, "").with_session("trust-session");
 
     // Sensitive write with full trust should be allowed
-    let (decision, _, _) = agent.request_access(&server.app, "write", "sensitive-data", &["sensitive:write"]).await;
+    let (decision, _, _) = agent
+        .request_access(&server.app, "write", "sensitive-data", &["sensitive:write"])
+        .await;
     assert_eq!(decision, "allow");
 
     let sessions = AgentHarness::get_sessions(&server.app).await;
-    let session = sessions.iter().find(|s| s["session_id"] == "trust-session").unwrap();
+    let session = sessions
+        .iter()
+        .find(|s| s["session_id"] == "trust-session")
+        .unwrap();
     assert_eq!(session["trust_level"], json!(1.0));
 }
 
 #[tokio::test]
 async fn test_trust_decay_blocks_after_idle() {
+    use chrono::{Duration, Utc};
     use patroclus::session::SessionStore;
     use std::sync::Arc;
-    use chrono::{Duration, Utc};
 
     let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
     let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "decay@test.com").await;
     let mut agent = AgentHarness::new(&agent_id, "").with_session("decay-session");
 
     // First write succeeds
-    let (decision, _, _) = agent.request_access(&server.app, "write", "sensitive-data", &["sensitive:write"]).await;
+    let (decision, _, _) = agent
+        .request_access(&server.app, "write", "sensitive-data", &["sensitive:write"])
+        .await;
     assert_eq!(decision, "allow");
 
     // Simulate idle time by manipulating session state directly
@@ -212,7 +236,10 @@ async fn test_trust_decay_blocks_after_idle() {
     // For a proper test, we test the trust decay unit test in session/mod.rs
     // Here we verify the trust_level is still 1.0 since no time has passed
     let sessions = AgentHarness::get_sessions(&server.app).await;
-    let session = sessions.iter().find(|s| s["session_id"] == "decay-session").unwrap();
+    let session = sessions
+        .iter()
+        .find(|s| s["session_id"] == "decay-session")
+        .unwrap();
     assert_eq!(session["trust_level"], json!(1.0));
 }
 
@@ -228,20 +255,39 @@ async fn test_workflow_requires_prior_action() {
 
     // Try to execute_trade without loading profile first — should be denied
     let (decision, reason, _) = agent
-        .request_access(&server.app, "execute_trade", "trading-account", &["trading:execute"])
+        .request_access(
+            &server.app,
+            "execute_trade",
+            "trading-account",
+            &["trading:execute"],
+        )
         .await;
     assert_eq!(decision, "deny");
-    assert!(reason.contains("Required prior action 'load_profile'"), "reason: {}", reason);
+    assert!(
+        reason.contains("Required prior action 'load_profile'"),
+        "reason: {}",
+        reason
+    );
 
     // Now load_profile (read action, allowed by allow-reads rule)
     let (decision, _, _) = agent
-        .request_access(&server.app, "load_profile", "trading-account", &["trading:read"])
+        .request_access(
+            &server.app,
+            "load_profile",
+            "trading-account",
+            &["trading:read"],
+        )
         .await;
     assert_eq!(decision, "allow");
 
     // Now execute_trade should succeed (prior action is in trajectory)
     let (decision, _, _) = agent
-        .request_access(&server.app, "execute_trade", "trading-account", &["trading:execute"])
+        .request_access(
+            &server.app,
+            "execute_trade",
+            "trading-account",
+            &["trading:execute"],
+        )
         .await;
     assert_eq!(decision, "allow");
 }
@@ -269,7 +315,11 @@ async fn test_max_actions_per_session() {
         .request_access(&server.app, "query", "data-table", &["data:query"])
         .await;
     assert_eq!(decision, "deny");
-    assert!(reason.contains("Max actions in session exceeded"), "reason: {}", reason);
+    assert!(
+        reason.contains("Max actions in session exceeded"),
+        "reason: {}",
+        reason
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -283,22 +333,21 @@ async fn test_kill_session_blocks_all_subsequent_access() {
     let mut agent = AgentHarness::new(&agent_id, "").with_session("kill-session");
 
     // First access should work
-    let (decision, _, _) = agent.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
+    let (decision, _, _) = agent
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
     assert_eq!(decision, "allow");
 
     // Kill the session
-    let (status, body) = send_request(
-        &server.app,
-        "POST",
-        "/v1/sessions/kill-session/kill",
-        None,
-    )
-    .await;
+    let (status, body) =
+        send_request(&server.app, "POST", "/v1/sessions/kill-session/kill", None).await;
     assert_eq!(status, axum::http::StatusCode::OK);
     assert_eq!(body["killed"], true);
 
     // Subsequent access should be denied
-    let (decision, reason, _) = agent.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
+    let (decision, reason, _) = agent
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
     assert_eq!(decision, "deny");
     assert!(reason.contains("killed"), "reason: {}", reason);
 }
@@ -313,8 +362,12 @@ async fn test_kill_agent_kills_all_sessions() {
     let mut agent_s2 = AgentHarness::new(&agent_id, "").with_session("kill-all-2");
 
     // Both should work initially
-    let (d1, _, _) = agent_s1.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
-    let (d2, _, _) = agent_s2.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
+    let (d1, _, _) = agent_s1
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    let (d2, _, _) = agent_s2
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
     assert_eq!(d1, "allow");
     assert_eq!(d2, "allow");
 
@@ -331,8 +384,12 @@ async fn test_kill_agent_kills_all_sessions() {
     assert!(body["sessions_killed"].as_i64().unwrap() >= 2);
 
     // Both sessions should now be denied
-    let (d1, _, _) = agent_s1.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
-    let (d2, _, _) = agent_s2.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
+    let (d1, _, _) = agent_s1
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    let (d2, _, _) = agent_s2
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
     assert_eq!(d1, "deny");
     assert_eq!(d2, "deny");
 }
@@ -348,12 +405,21 @@ async fn test_session_trajectory_records_all_actions() {
     let mut agent = AgentHarness::new(&agent_id, "").with_session("traj-session");
 
     // Perform several actions
-    agent.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
-    agent.request_access(&server.app, "write", "dev-config", &["db:write"]).await;
-    agent.request_access(&server.app, "read", "dev-logs", &["db:read"]).await;
+    agent
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    agent
+        .request_access(&server.app, "write", "dev-config", &["db:write"])
+        .await;
+    agent
+        .request_access(&server.app, "read", "dev-logs", &["db:read"])
+        .await;
 
     let sessions = AgentHarness::get_sessions(&server.app).await;
-    let session = sessions.iter().find(|s| s["session_id"] == "traj-session").unwrap();
+    let session = sessions
+        .iter()
+        .find(|s| s["session_id"] == "traj-session")
+        .unwrap();
     assert_eq!(session["actions_count"], json!(3));
     assert_eq!(session["trajectory_length"], json!(3));
 }
@@ -367,13 +433,22 @@ async fn test_sessions_are_isolated_per_session_id() {
     let mut s2 = AgentHarness::new(&agent_id, "").with_session("iso-2");
 
     // Different sessions should have independent action counts
-    s1.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
-    s1.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
-    s2.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
+    s1.request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    s1.request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    s2.request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
 
     let sessions = AgentHarness::get_sessions(&server.app).await;
-    let s1_state = sessions.iter().find(|s| s["session_id"] == "iso-1").unwrap();
-    let s2_state = sessions.iter().find(|s| s["session_id"] == "iso-2").unwrap();
+    let s1_state = sessions
+        .iter()
+        .find(|s| s["session_id"] == "iso-1")
+        .unwrap();
+    let s2_state = sessions
+        .iter()
+        .find(|s| s["session_id"] == "iso-2")
+        .unwrap();
     assert_eq!(s1_state["actions_count"], json!(2));
     assert_eq!(s2_state["actions_count"], json!(1));
 }
@@ -387,7 +462,8 @@ async fn test_e2e_full_agent_lifecycle() {
     let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
 
     // Step 1: Register agent + principal
-    let (agent_id, principal_id) = create_agent_and_principal(&server.app, "lifecycle-agent", "life@test.com").await;
+    let (agent_id, principal_id) =
+        create_agent_and_principal(&server.app, "lifecycle-agent", "life@test.com").await;
 
     // Step 2: Principal delegates permissions
     let (_, body) = send_request(
@@ -409,22 +485,32 @@ async fn test_e2e_full_agent_lifecycle() {
         .with_delegation_token(delegation_token);
 
     // Read should be allowed
-    let (decision, _, token) = agent.request_access(&server.app, "read", "dev-db/users", &["db:read"]).await;
+    let (decision, _, token) = agent
+        .request_access(&server.app, "read", "dev-db/users", &["db:read"])
+        .await;
     assert_eq!(decision, "allow");
     assert!(token.is_some(), "Should receive a JWT token");
 
     // Write to dev should be allowed
-    let (decision, _, token) = agent.request_access(&server.app, "write", "dev-config", &["db:write"]).await;
+    let (decision, _, token) = agent
+        .request_access(&server.app, "write", "dev-config", &["db:write"])
+        .await;
     assert_eq!(decision, "allow");
     assert!(token.is_some());
 
     // API call should be allowed (first call)
-    let (decision, _, _) = agent.request_access(&server.app, "call", "api-service", &["api:call"]).await;
+    let (decision, _, _) = agent
+        .request_access(&server.app, "call", "api-service", &["api:call"])
+        .await;
     assert_eq!(decision, "allow");
 
     // Verify the token is verifiable
     if let Some(t) = &token {
-        let claims = server.state.token_verifier.verify(t, Some("dev-config")).unwrap();
+        let claims = server
+            .state
+            .token_verifier
+            .verify(t, Some("dev-config"))
+            .unwrap();
         assert!(claims.scope.contains("db:write"));
     }
 
@@ -434,7 +520,10 @@ async fn test_e2e_full_agent_lifecycle() {
 
     // Step 5: Verify session state
     let sessions = AgentHarness::get_sessions(&server.app).await;
-    let session = sessions.iter().find(|s| s["session_id"] == "lifecycle-session").unwrap();
+    let session = sessions
+        .iter()
+        .find(|s| s["session_id"] == "lifecycle-session")
+        .unwrap();
     assert_eq!(session["actions_count"], json!(3));
     assert!(session["trust_level"].as_f64().unwrap() > 0.0);
 
@@ -449,7 +538,9 @@ async fn test_e2e_full_agent_lifecycle() {
     assert_eq!(status, axum::http::StatusCode::OK);
 
     // Step 7: Verify subsequent access is blocked
-    let (decision, reason, _) = agent.request_access(&server.app, "read", "dev-db/users", &["db:read"]).await;
+    let (decision, reason, _) = agent
+        .request_access(&server.app, "read", "dev-db/users", &["db:read"])
+        .await;
     assert_eq!(decision, "deny");
     assert!(reason.contains("killed"));
 }
@@ -459,7 +550,8 @@ async fn test_e2e_multi_agent_orchestration() {
     let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
 
     // Create orchestrator + workers
-    let (orch_id, orch_principal) = create_agent_and_principal(&server.app, "orchestrator", "orch@test.com").await;
+    let (orch_id, orch_principal) =
+        create_agent_and_principal(&server.app, "orchestrator", "orch@test.com").await;
     let (worker1_id, _) = create_agent_and_principal(&server.app, "worker-1", "w1@test.com").await;
     let (worker2_id, _) = create_agent_and_principal(&server.app, "worker-2", "w2@test.com").await;
 
@@ -483,29 +575,39 @@ async fn test_e2e_multi_agent_orchestration() {
         .with_delegation_token(orch_token);
 
     // Orchestrator makes a call to create its session
-    let (decision, _, _) = orch.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
+    let (decision, _, _) = orch
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
     assert_eq!(decision, "allow");
 
     // Worker 1 gets db:read only
-    let w1_token = orch.delegate_to(&server.app, &worker1_id, &["db:read"], 1800).await;
+    let w1_token = orch
+        .delegate_to(&server.app, &worker1_id, &["db:read"], 1800)
+        .await;
     assert!(w1_token.is_some(), "Worker 1 should get delegated token");
 
     // Worker 2 gets api:call only
-    let w2_token = orch.delegate_to(&server.app, &worker2_id, &["api:call"], 1800).await;
+    let w2_token = orch
+        .delegate_to(&server.app, &worker2_id, &["api:call"], 1800)
+        .await;
     assert!(w2_token.is_some(), "Worker 2 should get delegated token");
 
     // Worker 1 can read
     let mut w1 = AgentHarness::new(&worker1_id, "")
         .with_session("w1-session")
         .with_delegation_token(w1_token.unwrap().as_str());
-    let (decision, _, _) = w1.request_access(&server.app, "read", "dev-db", &["db:read"]).await;
+    let (decision, _, _) = w1
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
     assert_eq!(decision, "allow");
 
     // Worker 2 can call API
     let mut w2 = AgentHarness::new(&worker2_id, "")
         .with_session("w2-session")
         .with_delegation_token(w2_token.unwrap().as_str());
-    let (decision, _, _) = w2.request_access(&server.app, "call", "api-service", &["api:call"]).await;
+    let (decision, _, _) = w2
+        .request_access(&server.app, "call", "api-service", &["api:call"])
+        .await;
     assert_eq!(decision, "allow");
 
     // Verify sessions are independent

@@ -82,7 +82,8 @@ impl AgentHarness {
             body["delegation_token"] = json!(token);
         }
 
-        let (status, resp) = send_request(app, "POST", "/v1/agent/request-access", Some(body)).await;
+        let (status, resp) =
+            send_request(app, "POST", "/v1/agent/request-access", Some(body)).await;
         self.actions_taken.push(format!("{}:{}", action, resource));
 
         let decision = resp["decision"].as_str().unwrap_or("error").to_string();
@@ -133,7 +134,10 @@ impl AgentHarness {
         let scope_vec: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
         // Prefer delegation_token for sub-delegation since access_token
         // from request_access has a different audience
-        let token = self.delegation_token.as_ref().or(self.access_token.as_ref())?;
+        let token = self
+            .delegation_token
+            .as_ref()
+            .or(self.access_token.as_ref())?;
         let body = json!({
             "parent_grant_token": token,
             "sub_agent_id": sub_agent_id,
@@ -150,16 +154,18 @@ impl AgentHarness {
     }
 
     /// Record spend for budget tracking.
-    pub async fn record_spend(
-        &self,
-        app: &Router,
-        amount: f64,
-    ) {
+    pub async fn record_spend(&self, app: &Router, amount: f64) {
         let body = json!({
             "amount": amount,
             "session_id": self.session_id,
         });
-        let _ = send_request(app, "POST", &format!("/v1/admin/agents/{}/spend", self.agent_id), Some(body)).await;
+        let _ = send_request(
+            app,
+            "POST",
+            &format!("/v1/admin/agents/{}/spend", self.agent_id),
+            Some(body),
+        )
+        .await;
     }
 
     /// Get all audit entries (for verification).
@@ -177,7 +183,7 @@ impl AgentHarness {
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tower::ServiceExt;
 
 pub async fn send_request(
@@ -197,11 +203,14 @@ pub async fn send_request(
     };
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
-    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json_val: Value = if body_bytes.is_empty() {
         json!({})
     } else {
-        serde_json::from_slice(&body_bytes).unwrap_or(json!({ "raw": String::from_utf8_lossy(&body_bytes) }))
+        serde_json::from_slice(&body_bytes)
+            .unwrap_or(json!({ "raw": String::from_utf8_lossy(&body_bytes) }))
     };
     (status, json_val)
 }
@@ -221,7 +230,8 @@ pub async fn create_agent_and_principal(
             "email": principal_email,
             "display_name": principal_email
         })),
-    ).await;
+    )
+    .await;
     let principal_id = principal["id"].as_str().unwrap().to_string();
 
     let (_, agent) = send_request(
@@ -233,7 +243,8 @@ pub async fn create_agent_and_principal(
             "principal_type": "delegated",
             "owner_id": principal_id
         })),
-    ).await;
+    )
+    .await;
     let agent_id = agent["id"].as_str().unwrap().to_string();
 
     (agent_id, principal_id)

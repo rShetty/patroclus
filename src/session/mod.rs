@@ -171,11 +171,7 @@ impl SessionStore {
             .unwrap_or(false)
     }
 
-    pub fn check_rate_limit(
-        &self,
-        key: &str,
-        max_per_minute: u64,
-    ) -> Result<()> {
+    pub fn check_rate_limit(&self, key: &str, max_per_minute: u64) -> Result<()> {
         let mut limits = self.rate_limits.write();
         let now = Utc::now();
         let window = Duration::minutes(1);

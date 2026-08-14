@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use uuid::Uuid;
 
 use crate::audit::{AuditEntry, CreateAuditEntry};
 use crate::errors::{PatroclusError, Result};
-use crate::identity::{Agent, AgentStatus, AgentType, CreateAgentRequest, CreatePrincipalRequest, Principal};
+use crate::identity::{
+    Agent, AgentStatus, AgentType, CreateAgentRequest, CreatePrincipalRequest, Principal,
+};
 
 pub mod migrations;
 
@@ -28,7 +30,11 @@ impl Database {
     pub fn create_default_policy(&self) -> Result<()> {
         let conn = self.conn.lock();
         let exists: i64 = conn
-            .query_row("SELECT COUNT(*) FROM policies WHERE status = 'active'", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM policies WHERE status = 'active'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap_or(0);
         if exists == 0 {
             let id = uuid::Uuid::now_v7().to_string();
@@ -205,11 +211,12 @@ impl Database {
 
     pub fn get_principal_by_email(&self, email: &str) -> Option<Principal> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT id, external_id, idp_provider, email, display_name, created_at
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, external_id, idp_provider, email, display_name, created_at
              FROM principals WHERE email = ?",
-        )
-        .ok()?;
+            )
+            .ok()?;
         stmt.query_row(params![email], |row| {
             Ok(Principal {
                 id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_default(),
@@ -228,10 +235,14 @@ impl Database {
     pub fn create_audit_entry(&self, entry: &CreateAuditEntry) -> Result<AuditEntry> {
         let conn = self.conn.lock();
         let prev_hash: String = conn
-            .query_row("SELECT row_hash FROM audit_log ORDER BY id DESC LIMIT 1", [], |row| {
-                row.get(0)
-            })
-            .unwrap_or_else(|_| "0000000000000000000000000000000000000000000000000000000000000000".to_string());
+            .query_row(
+                "SELECT row_hash FROM audit_log ORDER BY id DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| {
+                "0000000000000000000000000000000000000000000000000000000000000000".to_string()
+            });
 
         let decision_str = match &entry.decision {
             crate::policy::Decision::Allow => "allow",
@@ -361,7 +372,10 @@ impl Database {
 
     // ── Resource management ────────────────────────────────────────
 
-    pub fn create_resource(&self, req: &crate::resource::CreateResourceRequest) -> Result<crate::resource::Resource> {
+    pub fn create_resource(
+        &self,
+        req: &crate::resource::CreateResourceRequest,
+    ) -> Result<crate::resource::Resource> {
         let conn = self.conn.lock();
         let id = Uuid::now_v7();
         let now = Utc::now();
@@ -512,7 +526,9 @@ impl Database {
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
                 revocable: revocable != 0,
-                revoked_at: revoked_at_str.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()).map(|d| d.with_timezone(&Utc)),
+                revoked_at: revoked_at_str
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|d| d.with_timezone(&Utc)),
                 created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(9)?)
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
@@ -579,7 +595,9 @@ impl Database {
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
                 revocable: revocable != 0,
-                revoked_at: revoked_at_str.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()).map(|d| d.with_timezone(&Utc)),
+                revoked_at: revoked_at_str
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|d| d.with_timezone(&Utc)),
                 created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(9)?)
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
@@ -613,7 +631,9 @@ impl Database {
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
                 revocable: revocable != 0,
-                revoked_at: revoked_at_str.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()).map(|d| d.with_timezone(&Utc)),
+                revoked_at: revoked_at_str
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|d| d.with_timezone(&Utc)),
                 created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(9)?)
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
@@ -688,7 +708,11 @@ impl Database {
     pub fn is_token_revoked(&self, jti: &str) -> Result<bool> {
         let conn = self.conn.lock();
         let revoked: i64 = conn
-            .query_row("SELECT revoked FROM tokens WHERE id = ?", params![jti], |row| row.get(0))
+            .query_row(
+                "SELECT revoked FROM tokens WHERE id = ?",
+                params![jti],
+                |row| row.get(0),
+            )
             .unwrap_or(0);
         Ok(revoked != 0)
     }
@@ -759,7 +783,9 @@ impl Database {
                 id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_default(),
                 agent_id: Uuid::parse_str(&row.get::<_, String>(1)?).unwrap_or_default(),
                 principal_id: principal_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
-                resource_id: resource_id_str.and_then(|s| Uuid::parse_str(&s).ok()).unwrap_or_default(),
+                resource_id: resource_id_str
+                    .and_then(|s| Uuid::parse_str(&s).ok())
+                    .unwrap_or_default(),
                 action: row.get(4)?,
                 requested_scopes: serde_json::from_str(&scopes_str).unwrap_or_default(),
                 status,
@@ -772,7 +798,9 @@ impl Database {
                 created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(11)?)
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
-                resolved_at: resolved_at_str.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()).map(|d| d.with_timezone(&Utc)),
+                resolved_at: resolved_at_str
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|d| d.with_timezone(&Utc)),
             })
         })?;
         Ok(req)
@@ -794,7 +822,9 @@ impl Database {
                 id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_default(),
                 agent_id: Uuid::parse_str(&row.get::<_, String>(1)?).unwrap_or_default(),
                 principal_id: principal_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
-                resource_id: resource_id_str.and_then(|s| Uuid::parse_str(&s).ok()).unwrap_or_default(),
+                resource_id: resource_id_str
+                    .and_then(|s| Uuid::parse_str(&s).ok())
+                    .unwrap_or_default(),
                 action: row.get(4)?,
                 requested_scopes: serde_json::from_str(&scopes_str).unwrap_or_default(),
                 status: crate::approval::ApprovalStatus::Pending,
@@ -807,7 +837,9 @@ impl Database {
                 created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(11)?)
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
-                resolved_at: resolved_at_str.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()).map(|d| d.with_timezone(&Utc)),
+                resolved_at: resolved_at_str
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|d| d.with_timezone(&Utc)),
             })
         })?;
         let mut result = Vec::new();
@@ -837,7 +869,9 @@ impl Database {
             params![status, approver_id.to_string(), reason, approval_token.as_ref(), now.to_rfc3339(), id.to_string()],
         )?;
         if conn.changes() == 0 {
-            return Err(PatroclusError::Database("approval request not found or already resolved".to_string()));
+            return Err(PatroclusError::Database(
+                "approval request not found or already resolved".to_string(),
+            ));
         }
         drop(conn);
         self.get_approval_request(id)
@@ -887,25 +921,28 @@ impl Database {
             "SELECT id, principal_id, provider, encrypted_token, nonce, encryption_key_id, scopes, expires_at, created_at, updated_at
              FROM vault_credentials WHERE principal_id = ? AND provider = ? ORDER BY updated_at DESC LIMIT 1",
         )?;
-        let result = stmt.query_row(
-            params![principal_id.to_string(), provider],
-            |row| {
-                let scopes_str: String = row.get(6)?;
-                let expires_str: Option<String> = row.get(7)?;
-                Ok(VaultCredentialRecord {
-                    id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_default(),
-                    principal_id: Uuid::parse_str(&row.get::<_, String>(1)?).unwrap_or_default(),
-                    provider: row.get(2)?,
-                    encrypted_token: row.get(3)?,
-                    nonce: row.get(4)?,
-                    encryption_key_id: row.get(5)?,
-                    scopes: serde_json::from_str(&scopes_str).unwrap_or_default(),
-                    expires_at: expires_str.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()).map(|d| d.with_timezone(&Utc)),
-                    created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(8)?).map(|d| d.with_timezone(&Utc)).unwrap_or(Utc::now()),
-                    updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(9)?).map(|d| d.with_timezone(&Utc)).unwrap_or(Utc::now()),
-                })
-            },
-        );
+        let result = stmt.query_row(params![principal_id.to_string(), provider], |row| {
+            let scopes_str: String = row.get(6)?;
+            let expires_str: Option<String> = row.get(7)?;
+            Ok(VaultCredentialRecord {
+                id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_default(),
+                principal_id: Uuid::parse_str(&row.get::<_, String>(1)?).unwrap_or_default(),
+                provider: row.get(2)?,
+                encrypted_token: row.get(3)?,
+                nonce: row.get(4)?,
+                encryption_key_id: row.get(5)?,
+                scopes: serde_json::from_str(&scopes_str).unwrap_or_default(),
+                expires_at: expires_str
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|d| d.with_timezone(&Utc)),
+                created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(8)?)
+                    .map(|d| d.with_timezone(&Utc))
+                    .unwrap_or(Utc::now()),
+                updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(9)?)
+                    .map(|d| d.with_timezone(&Utc))
+                    .unwrap_or(Utc::now()),
+            })
+        });
         match result {
             Ok(record) => Ok(Some(record)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),

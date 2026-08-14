@@ -80,7 +80,9 @@ impl TokenExchangeProvider for GitHubProvider {
                 .form(&params)
                 .send()
                 .await
-                .map_err(|e| PatroclusError::Vault(format!("GitHub token exchange failed: {}", e)))?;
+                .map_err(|e| {
+                    PatroclusError::Vault(format!("GitHub token exchange failed: {}", e))
+                })?;
 
             if !resp.status().is_success() {
                 let status = resp.status();
@@ -91,10 +93,9 @@ impl TokenExchangeProvider for GitHubProvider {
                 )));
             }
 
-            let data: serde_json::Value = resp
-                .json()
-                .await
-                .map_err(|e| PatroclusError::Vault(format!("GitHub response parse error: {}", e)))?;
+            let data: serde_json::Value = resp.json().await.map_err(|e| {
+                PatroclusError::Vault(format!("GitHub response parse error: {}", e))
+            })?;
 
             if let Some(err) = data.get("error") {
                 return Err(PatroclusError::Vault(format!(
@@ -114,9 +115,15 @@ impl TokenExchangeProvider for GitHubProvider {
                     .and_then(|v| v.as_str())
                     .unwrap_or("bearer")
                     .to_string(),
-                scope: data.get("scope").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                scope: data
+                    .get("scope")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
                 expires_in: data.get("expires_in").and_then(|v| v.as_u64()),
-                refresh_token: data.get("refresh_token").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                refresh_token: data
+                    .get("refresh_token")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             })
         })
     }
@@ -134,9 +141,7 @@ impl GoogleProvider {
                 token_url: "https://oauth2.googleapis.com/token".to_string(),
                 client_id,
                 client_secret,
-                default_scopes: vec![
-                    "https://www.googleapis.com/auth/userinfo.email".to_string(),
-                ],
+                default_scopes: vec!["https://www.googleapis.com/auth/userinfo.email".to_string()],
             },
         }
     }
@@ -174,7 +179,9 @@ impl TokenExchangeProvider for GoogleProvider {
                 .form(&params)
                 .send()
                 .await
-                .map_err(|e| PatroclusError::Vault(format!("Google token exchange failed: {}", e)))?;
+                .map_err(|e| {
+                    PatroclusError::Vault(format!("Google token exchange failed: {}", e))
+                })?;
 
             if !resp.status().is_success() {
                 let status = resp.status();
@@ -185,10 +192,9 @@ impl TokenExchangeProvider for GoogleProvider {
                 )));
             }
 
-            let data: serde_json::Value = resp
-                .json()
-                .await
-                .map_err(|e| PatroclusError::Vault(format!("Google response parse error: {}", e)))?;
+            let data: serde_json::Value = resp.json().await.map_err(|e| {
+                PatroclusError::Vault(format!("Google response parse error: {}", e))
+            })?;
 
             if let Some(err) = data.get("error") {
                 return Err(PatroclusError::Vault(format!(
@@ -208,9 +214,15 @@ impl TokenExchangeProvider for GoogleProvider {
                     .and_then(|v| v.as_str())
                     .unwrap_or("Bearer")
                     .to_string(),
-                scope: data.get("scope").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                scope: data
+                    .get("scope")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
                 expires_in: data.get("expires_in").and_then(|v| v.as_u64()),
-                refresh_token: data.get("refresh_token").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                refresh_token: data
+                    .get("refresh_token")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             })
         })
     }
@@ -262,7 +274,9 @@ impl TokenExchangeProvider for SlackProvider {
                 .form(&params)
                 .send()
                 .await
-                .map_err(|e| PatroclusError::Vault(format!("Slack token exchange failed: {}", e)))?;
+                .map_err(|e| {
+                    PatroclusError::Vault(format!("Slack token exchange failed: {}", e))
+                })?;
 
             if !resp.status().is_success() {
                 let status = resp.status();
@@ -281,7 +295,9 @@ impl TokenExchangeProvider for SlackProvider {
             if !data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
                 return Err(PatroclusError::Vault(format!(
                     "Slack token exchange error: {}",
-                    data.get("error").and_then(|v| v.as_str()).unwrap_or("unknown")
+                    data.get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
                 )));
             }
 
@@ -292,9 +308,15 @@ impl TokenExchangeProvider for SlackProvider {
                     .unwrap_or("")
                     .to_string(),
                 token_type: "bearer".to_string(),
-                scope: data.get("scope").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                scope: data
+                    .get("scope")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
                 expires_in: None,
-                refresh_token: data.get("refresh_token").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                refresh_token: data
+                    .get("refresh_token")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             })
         })
     }

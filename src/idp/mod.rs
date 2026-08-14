@@ -234,13 +234,15 @@ mod tests {
         let mappings = vec![
             GroupPolicyMapping {
                 group: "engineering".to_string(),
-                policy_yaml: "- name: eng-access\n  decision: allow\n  reason: Engineering access".to_string(),
+                policy_yaml: "- name: eng-access\n  decision: allow\n  reason: Engineering access"
+                    .to_string(),
                 scopes: vec!["db:read".to_string(), "api:call".to_string()],
                 max_spend: Some(100.0),
             },
             GroupPolicyMapping {
                 group: "finance".to_string(),
-                policy_yaml: "- name: fin-access\n  decision: allow\n  reason: Finance access".to_string(),
+                policy_yaml: "- name: fin-access\n  decision: allow\n  reason: Finance access"
+                    .to_string(),
                 scopes: vec!["billing:read".to_string()],
                 max_spend: None,
             },
