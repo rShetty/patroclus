@@ -63,6 +63,7 @@ jobs:
           scanners: vuln,secret,misconfig
           severity: HIGH,CRITICAL
           exit-code: 1
+          trivyignores: .trivyignore.yaml
 
   deploy:
     needs: [verify, security]
