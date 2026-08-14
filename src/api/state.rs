@@ -4,6 +4,7 @@ use crate::config::Config;
 use crate::crypto::KeyPair;
 use crate::db::Database;
 use crate::policy::PolicyEngine;
+use crate::session::SessionStore;
 use crate::token::issuer::TokenIssuer;
 use crate::token::verifier::TokenVerifier;
 use crate::vault::Vault;
@@ -16,6 +17,7 @@ pub struct AppState {
     pub token_issuer: Arc<TokenIssuer>,
     pub token_verifier: Arc<TokenVerifier>,
     pub vault: Option<Arc<Vault>>,
+    pub session_store: Arc<SessionStore>,
 }
 
 impl AppState {
@@ -23,10 +25,16 @@ impl AppState {
         let db = Database::new(&config.database.path)?;
         db.create_default_policy()?;
 
+        let session_store = Arc::new(SessionStore::new());
+
         let policy_yaml = db.load_active_policy_yaml()?;
         let policy_yaml_ref = if policy_yaml.is_empty() { None } else { Some(policy_yaml.as_str()) };
         let policy_engine: Arc<dyn PolicyEngine> = Arc::from(
-            crate::policy::create_engine(&config.policy.engine, policy_yaml_ref)?
+            crate::policy::create_engine_with_sessions(
+                &config.policy.engine,
+                policy_yaml_ref,
+                session_store.clone(),
+            )?,
         );
 
         let keypair = KeyPair::load_or_generate(
@@ -66,6 +74,7 @@ impl AppState {
             token_issuer,
             token_verifier,
             vault,
+            session_store,
         })
     }
 
@@ -74,10 +83,16 @@ impl AppState {
         let db = Database::new(":memory:")?;
         db.create_default_policy()?;
 
+        let session_store = Arc::new(SessionStore::new());
+
         let policy_yaml = db.load_active_policy_yaml()?;
         let policy_yaml_ref = if policy_yaml.is_empty() { None } else { Some(policy_yaml.as_str()) };
         let policy_engine: Arc<dyn PolicyEngine> = Arc::from(
-            crate::policy::create_engine(&config.policy.engine, policy_yaml_ref)?
+            crate::policy::create_engine_with_sessions(
+                &config.policy.engine,
+                policy_yaml_ref,
+                session_store.clone(),
+            )?,
         );
 
         let keypair = KeyPair::generate()?;
@@ -102,6 +117,7 @@ impl AppState {
             token_issuer,
             token_verifier,
             vault: Some(vault),
+            session_store,
         })
     }
 }

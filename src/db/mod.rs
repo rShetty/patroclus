@@ -693,6 +693,16 @@ impl Database {
         Ok(revoked != 0)
     }
 
+    pub fn revoke_agent_tokens(&self, agent_id: Uuid) -> Result<usize> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE tokens SET revoked = 1 WHERE agent_id = ? AND revoked = 0",
+            params![agent_id.to_string()],
+        )?;
+        let count = conn.changes() as usize;
+        Ok(count)
+    }
+
     // ── Approval management ────────────────────────────────────────
 
     pub fn create_approval_request(

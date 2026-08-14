@@ -60,6 +60,14 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
         ("/v1/vault/credentials".to_string(), post(store_credential).get(list_vault_credentials)),
         ("/v1/vault/vend".to_string(), post(vend_credential)),
         ("/v1/vault/generate-key".to_string(), post(generate_vault_key)),
+
+        // Session management
+        ("/v1/sessions".to_string(), get(list_sessions)),
+        ("/v1/sessions/{id}/kill".to_string(), post(kill_session)),
+
+        // Kill switch — emergency stop for agent
+        ("/v1/admin/agents/{id}/kill".to_string(), post(kill_agent)),
+        ("/v1/admin/agents/{id}/spend".to_string(), post(record_spend)),
     ]
 }
 
@@ -81,14 +89,34 @@ async fn request_access(
         agent.owner_id.and_then(|oid| state.db.get_principal(oid).ok())
     };
 
+    let session_id = req.context.as_ref()
+        .and_then(|c| c.session_id.clone())
+        .unwrap_or_else(|| format!("agent-{}-default", agent.id));
+
+    let session = state.session_store.get_or_create_session(
+        &session_id,
+        agent.id,
+        principal.as_ref().map(|p| p.id),
+    );
+
+    if session.killed {
+        return Ok(Json(AccessResponse {
+            decision: "deny".to_string(),
+            token: None,
+            approval: None,
+            reason: "Agent session has been killed by emergency stop".to_string(),
+            approved_scopes: vec![],
+        }));
+    }
+
     let ctx = PolicyContext {
         agent: agent.clone(),
         principal: principal.clone(),
         action: req.action.clone(),
         resource: req.resource.clone(),
         requested_scopes: req.requested_scopes.clone(),
-        session_id: req.context.as_ref().and_then(|c| c.session_id.clone()),
-        trajectory: Vec::new(),
+        session_id: Some(session_id.clone()),
+        trajectory: session.trajectory.clone(),
     };
 
     let eval = state.policy_engine.evaluate(&ctx)?;
@@ -158,6 +186,16 @@ async fn request_access(
         }
         Decision::Deny => {}
     }
+
+    state.session_store.record_action(
+        &session_id,
+        crate::policy::TrajectoryEvent {
+            action: req.action.clone(),
+            resource: req.resource.clone(),
+            decision: eval.decision.clone(),
+            timestamp: chrono::Utc::now(),
+        },
+    );
 
     let audit = CreateAuditEntry {
         agent_id: agent.id,
@@ -605,5 +643,85 @@ async fn generate_vault_key(
     Ok(Json(serde_json::json!({
         "generated": true,
         "path": path,
+    })))
+}
+
+// ── Session management & kill switch ──────────────────────────────
+
+async fn list_sessions(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let sessions = state.session_store.list_sessions();
+    let result: Vec<serde_json::Value> = sessions
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "session_id": s.session_id,
+                "agent_id": s.agent_id,
+                "principal_id": s.principal_id,
+                "created_at": s.created_at,
+                "last_activity": s.last_activity,
+                "actions_count": s.actions_count,
+                "spend_total": s.spend_total,
+                "tokens_used": s.tokens_used,
+                "trust_level": s.trust_level,
+                "killed": s.killed,
+                "trajectory_length": s.trajectory.len(),
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "sessions": result })))
+}
+
+async fn kill_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let killed = state.session_store.kill_session(&id);
+    Ok(Json(serde_json::json!({
+        "killed": killed,
+        "session_id": id,
+    })))
+}
+
+async fn kill_agent(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let sessions = state.session_store.list_sessions();
+    let mut killed = 0;
+    for s in &sessions {
+        if s.agent_id == id && !s.killed {
+            state.session_store.kill_session(&s.session_id);
+            killed += 1;
+        }
+    }
+    state.db.revoke_agent_tokens(id)?;
+    Ok(Json(serde_json::json!({
+        "killed": true,
+        "agent_id": id,
+        "sessions_killed": killed,
+    })))
+}
+
+#[derive(Deserialize)]
+struct RecordSpendRequest {
+    amount: f64,
+    session_id: Option<String>,
+}
+
+async fn record_spend(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<RecordSpendRequest>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let session_id = req.session_id.unwrap_or_else(|| format!("agent-{}-default", id));
+    state.session_store.record_spend(&session_id, req.amount);
+    let session = state.session_store.get_session(&session_id);
+    Ok(Json(serde_json::json!({
+        "agent_id": id,
+        "session_id": session_id,
+        "spend_recorded": req.amount,
+        "cumulative_spend": session.map(|s| s.cumulative_spend()).unwrap_or(req.amount),
     })))
 }

@@ -11,3 +11,4 @@ pub mod vault;
 pub mod approval;
 pub mod audit;
 pub mod resource;
+pub mod session;

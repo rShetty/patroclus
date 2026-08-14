@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::errors::{PatroclusError, Result};
-use crate::identity::{Agent, AgentType, Principal};
+use crate::identity::{Agent, Principal};
+use crate::session::SessionStore;
 
 pub mod yaml_engine;
 
@@ -66,3 +69,26 @@ pub fn create_engine(engine_type: &str, policy_yaml: Option<&str>) -> Result<Box
         ))),
     }
 }
+
+pub fn create_engine_with_sessions(
+    engine_type: &str,
+    policy_yaml: Option<&str>,
+    session_store: Arc<SessionStore>,
+) -> Result<Box<dyn PolicyEngine>> {
+    match engine_type {
+        "yaml" => {
+            let mut engine = if let Some(yaml) = policy_yaml {
+                yaml_engine::YamlEngine::from_yaml(yaml)?
+            } else {
+                yaml_engine::YamlEngine::new()
+            };
+            Ok(Box::new(engine.with_session_store(session_store)))
+        }
+        other => Err(PatroclusError::NotImplemented(format!(
+            "policy engine '{}' not yet implemented",
+            other
+        ))),
+    }
+}
+
+// Suppress unused import warnings
