@@ -437,7 +437,7 @@ const API='';
 const state={guidedStep:1,guidedPrincipalId:null,guidedAgentId:null,guidedPolicyId:null,guidedGrantToken:null,guidedApprovalId:null};
 
 function showTab(t){document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));document.getElementById(t).classList.add('active');document.querySelectorAll('.sidebar button').forEach(b=>b.classList.remove('active'));const btn=document.querySelector('.sidebar button[onclick*="'+t+'"]');if(btn)btn.classList.add('active');loadTab(t)}
-async function f(url,opts){const r=await fetch(API+url,opts);const t=await r.text();if(!r.ok)throw new Error(t);try{return r.json()}catch{return t}}
+async function f(url,opts){const r=await fetch(API+url,opts);const t=await r.text();if(!r.ok)throw new Error(t);try{return JSON.parse(t)}catch{return t}}
 async function fPost(url,body){return f(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}
 function toast(msg,type='success'){const d=document.getElementById('toast');d.className='toast toast-'+type;d.textContent=msg;setTimeout(()=>d.className='',3000)}
 function showResult(id,data,ok=true){const el=document.getElementById(id);el.className='result-box show '+(ok?'result-success':'result-error');el.textContent=typeof data==='string'?data:JSON.stringify(data,null,2)}
