@@ -82,7 +82,7 @@ pub fn run(conn: &Connection) -> Result<()> {
             id TEXT PRIMARY KEY,
             agent_id TEXT NOT NULL,
             principal_id TEXT,
-            resource_id TEXT NOT NULL,
+            resource_id TEXT,
             action TEXT NOT NULL,
             requested_scopes TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
@@ -92,8 +92,7 @@ pub fn run(conn: &Connection) -> Result<()> {
             expires_at TEXT NOT NULL,
             created_at TEXT NOT NULL,
             resolved_at TEXT,
-            FOREIGN KEY (agent_id) REFERENCES agents(id),
-            FOREIGN KEY (resource_id) REFERENCES resources(id)
+            FOREIGN KEY (agent_id) REFERENCES agents(id)
         );
 
         CREATE TABLE IF NOT EXISTS audit_log (

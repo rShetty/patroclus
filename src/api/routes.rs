@@ -169,8 +169,7 @@ async fn request_access(
         Decision::RequireApproval { .. } => {
             let resource_id = state.db.find_resource_by_uri(&req.resource)
                 .ok()
-                .flatten()
-                .unwrap_or(Uuid::nil());
+                .flatten();
             let approval = state.db.create_approval_request(
                 agent.id,
                 principal.as_ref().map(|p| p.id),

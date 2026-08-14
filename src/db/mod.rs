@@ -709,7 +709,7 @@ impl Database {
         &self,
         agent_id: Uuid,
         principal_id: Option<Uuid>,
-        resource_id: Uuid,
+        resource_id: Option<Uuid>,
         action: &str,
         requested_scopes: &[String],
         ttl_seconds: u64,
@@ -725,7 +725,7 @@ impl Database {
                 id.to_string(),
                 agent_id.to_string(),
                 principal_id.map(|u| u.to_string()),
-                resource_id.to_string(),
+                resource_id.map(|u| u.to_string()),
                 action,
                 serde_json::to_string(requested_scopes).unwrap_or_default(),
                 expires_at.to_rfc3339(),
@@ -744,6 +744,7 @@ impl Database {
         )?;
         let req = stmt.query_row(params![id.to_string()], |row| {
             let principal_id_str: Option<String> = row.get(2)?;
+            let resource_id_str: Option<String> = row.get(3)?;
             let approver_id_str: Option<String> = row.get(7)?;
             let scopes_str: String = row.get(5)?;
             let status_str: String = row.get(6)?;
@@ -758,7 +759,7 @@ impl Database {
                 id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_default(),
                 agent_id: Uuid::parse_str(&row.get::<_, String>(1)?).unwrap_or_default(),
                 principal_id: principal_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
-                resource_id: Uuid::parse_str(&row.get::<_, String>(3)?).unwrap_or_default(),
+                resource_id: resource_id_str.and_then(|s| Uuid::parse_str(&s).ok()).unwrap_or_default(),
                 action: row.get(4)?,
                 requested_scopes: serde_json::from_str(&scopes_str).unwrap_or_default(),
                 status,
@@ -785,6 +786,7 @@ impl Database {
         )?;
         let rows = stmt.query_map([], |row| {
             let principal_id_str: Option<String> = row.get(2)?;
+            let resource_id_str: Option<String> = row.get(3)?;
             let approver_id_str: Option<String> = row.get(7)?;
             let scopes_str: String = row.get(5)?;
             let resolved_at_str: Option<String> = row.get(12)?;
@@ -792,7 +794,7 @@ impl Database {
                 id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_default(),
                 agent_id: Uuid::parse_str(&row.get::<_, String>(1)?).unwrap_or_default(),
                 principal_id: principal_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
-                resource_id: Uuid::parse_str(&row.get::<_, String>(3)?).unwrap_or_default(),
+                resource_id: resource_id_str.and_then(|s| Uuid::parse_str(&s).ok()).unwrap_or_default(),
                 action: row.get(4)?,
                 requested_scopes: serde_json::from_str(&scopes_str).unwrap_or_default(),
                 status: crate::approval::ApprovalStatus::Pending,
