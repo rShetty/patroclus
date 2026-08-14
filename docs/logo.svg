@@ -1,77 +1,74 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a1a2e;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#16213e;stop-opacity:1" />
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e2a4a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a1e3e;stop-opacity:1" />
     </linearGradient>
-    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#e94560;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#c23152;stop-opacity:1" />
+    <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff4d6d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e63946;stop-opacity:1" />
     </linearGradient>
-    <linearGradient id="grad3" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f3460;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1a1a4e;stop-opacity:1" />
+    <linearGradient id="helmetGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a5a8a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a3a6a;stop-opacity:1" />
     </linearGradient>
   </defs>
 
   <!-- Background: shield (protection/governance) -->
   <path d="M256 32 L448 96 L448 256 Q448 384 256 480 Q64 384 64 256 L64 96 Z"
-        fill="url(#grad1)" stroke="url(#grad2)" stroke-width="4"/>
+        fill="url(#shieldGrad)" stroke="#ff4d6d" stroke-width="5"/>
 
   <!-- Inner shield layer -->
   <path d="M256 56 L424 112 L424 256 Q424 368 256 452 Q88 368 88 256 L88 112 Z"
-        fill="none" stroke="#e94560" stroke-width="1.5" stroke-opacity="0.4"/>
+        fill="none" stroke="#ff6b8a" stroke-width="2" stroke-opacity="0.6"/>
 
   <!-- Greek helmet silhouette (Patroclus/Achilles) -->
   <g transform="translate(256, 210)">
     <!-- Helmet crest -->
     <path d="M -15 -100 Q -25 -120 -10 -135 Q 0 -145 10 -135 Q 25 -120 15 -100 Z"
-          fill="url(#grad2)"/>
+          fill="url(#redGrad)"/>
     <!-- Helmet main body -->
     <path d="M -45 -90 Q -55 -50 -50 0 Q -50 40 -30 60 Q -15 75 0 75 Q 15 75 30 60 Q 50 40 50 0 Q 55 -50 45 -90 Q 35 -100 0 -100 Q -35 -100 -45 -90 Z"
-          fill="url(#grad3)" stroke="#e94560" stroke-width="2"/>
+          fill="url(#helmetGrad)" stroke="#ff4d6d" stroke-width="3"/>
     <!-- Helmet T-slot opening (eyes/nose guard) -->
     <path d="M -25 -30 L 25 -30 L 25 -15 L 10 -15 L 10 40 L -10 40 L -10 -15 L -25 -15 Z"
-          fill="#1a1a2e"/>
+          fill="#0d1b2a"/>
     <!-- Cheek guards -->
     <path d="M -50 5 Q -55 25 -45 40 L -35 30 Q -40 15 -38 5 Z"
-          fill="url(#grad3)" stroke="#e94560" stroke-width="1.5"/>
+          fill="url(#helmetGrad)" stroke="#ff4d6d" stroke-width="2"/>
     <path d="M 50 5 Q 55 25 45 40 L 35 30 Q 40 15 38 5 Z"
-          fill="url(#grad3)" stroke="#e94560" stroke-width="1.5"/>
+          fill="url(#helmetGrad)" stroke="#ff4d6d" stroke-width="2"/>
   </g>
 
   <!-- Circuit/key pattern at bottom (agent infrastructure) -->
-  <g transform="translate(256, 360)" stroke="#e94560" stroke-width="2" fill="none" opacity="0.8">
+  <g transform="translate(256, 360)" stroke="#ff6b8a" stroke-width="3" fill="none" opacity="1">
     <!-- Center node -->
-    <circle cx="0" cy="0" r="8" fill="#e94560"/>
+    <circle cx="0" cy="0" r="9" fill="#ff4d6d"/>
     <!-- Left branch -->
-    <line x1="-8" y1="0" x2="-40" y2="0"/>
-    <circle cx="-40" cy="0" r="5" fill="#1a1a2e"/>
-    <line x1="-40" y1="0" x2="-40" y2="20"/>
-    <circle cx="-40" cy="20" r="4" fill="#e94560" opacity="0.6"/>
+    <line x1="-9" y1="0" x2="-42" y2="0"/>
+    <circle cx="-42" cy="0" r="6" fill="#1e2a4a" stroke="#ff4d6d" stroke-width="2"/>
+    <line x1="-42" y1="0" x2="-42" y2="22"/>
+    <circle cx="-42" cy="22" r="5" fill="#ff4d6d"/>
     <!-- Right branch -->
-    <line x1="8" y1="0" x2="40" y2="0"/>
-    <circle cx="40" cy="0" r="5" fill="#1a1a2e"/>
-    <line x1="40" y1="0" x2="40" y2="20"/>
-    <circle cx="40" cy="20" r="4" fill="#e94560" opacity="0.6"/>
+    <line x1="9" y1="0" x2="42" y2="0"/>
+    <circle cx="42" cy="0" r="6" fill="#1e2a4a" stroke="#ff4d6d" stroke-width="2"/>
+    <line x1="42" y1="0" x2="42" y2="22"/>
+    <circle cx="42" cy="22" r="5" fill="#ff4d6d"/>
     <!-- Top branch -->
-    <line x1="0" y1="-8" x2="0" y2="-35"/>
-    <circle cx="0" cy="-35" r="5" fill="#1a1a2e"/>
-    <!-- Connecting lines -->
-    <line x1="-40" y1="0" x2="0" y2="-35" stroke-dasharray="2,3" opacity="0.4"/>
-    <line x1="40" y1="0" x2="0" y2="-35" stroke-dasharray="2,3" opacity="0.4"/>
+    <line x1="0" y1="-9" x2="0" y2="-38"/>
+    <circle cx="0" cy="-38" r="6" fill="#1e2a4a" stroke="#ff4d6d" stroke-width="2"/>
   </g>
 
   <!-- Lock symbol (authorization) -->
   <g transform="translate(256, 410)">
-    <rect x="-14" y="-2" width="28" height="22" rx="3" fill="#e94560" opacity="0.9"/>
-    <path d="M -10 -2 L -10 -10 Q -10 -18 0 -18 Q 10 -18 10 -10 L 10 -2"
-          fill="none" stroke="#e94560" stroke-width="3"/>
-    <circle cx="0" cy="8" r="3" fill="#1a1a2e"/>
-    <rect x="-1.5" y="8" width="3" height="7" fill="#1a1a2e"/>
+    <rect x="-15" y="-2" width="30" height="24" rx="4" fill="#ff4d6d"/>
+    <path d="M -11 -2 L -11 -11 Q -11 -20 0 -20 Q 11 -20 11 -11 L 11 -2"
+          fill="none" stroke="#ff4d6d" stroke-width="3.5"/>
+    <circle cx="0" cy="9" r="3.5" fill="#0d1b2a"/>
+    <rect x="-2" y="9" width="4" height="8" fill="#0d1b2a"/>
   </g>
 
   <!-- "PATROCLUS" text -->
-  <text x="256" y="465" text-anchor="middle" font-family="Helvetica, Arial, sans-serif"
-        font-size="24" font-weight="bold" fill="#e94560" letter-spacing="4">PATROCLUS</text>
+  <text x="256" y="468" text-anchor="middle" font-family="Helvetica, Arial, sans-serif"
+        font-size="24" font-weight="bold" fill="#ff6b8a" letter-spacing="4">PATROCLUS</text>
 </svg>
