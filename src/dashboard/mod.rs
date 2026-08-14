@@ -17,11 +17,14 @@ a{color:#6c8aff;text-decoration:none}
 .header .health.err{color:#f44336}
 .header .health.err::before{background:#f44336}
 .header a.logout{margin-left:12px;color:#666;font-size:12px;text-decoration:none}
-.container{padding:20px;max-width:1400px;margin:0 auto}
-.nav{display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap}
-.nav button{background:#1a1d29;color:#888;border:1px solid #2a2d3a;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s}
-.nav button:hover{background:#1e2130;color:#e0e0e0}
-.nav button.active{background:#6c8aff;color:#fff;border-color:#6c8aff}
+.layout{display:flex;min-height:calc(100vh - 52px)}
+.sidebar{width:220px;background:#141620;border-right:1px solid #2a2d3a;padding:16px 0;position:fixed;top:52px;bottom:0;left:0;overflow-y:auto;z-index:50}
+.sidebar .nav-group{margin-bottom:8px}
+.sidebar .nav-group-title{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:1px;padding:8px 16px;font-weight:600}
+.sidebar button{display:block;width:100%;text-align:left;background:transparent;color:#999;border:none;padding:10px 16px;cursor:pointer;font-size:13px;transition:all .1s;border-left:3px solid transparent}
+.sidebar button:hover{background:#1a1d29;color:#e0e0e0}
+.sidebar button.active{background:#1a1d29;color:#6c8aff;border-left-color:#6c8aff;font-weight:600}
+.main{margin-left:220px;padding:20px;flex:1;max-width:calc(100% - 220px)}
 .tab-content{display:none}
 .tab-content.active{display:block}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px}
@@ -89,22 +92,38 @@ select option{background:#1a1d29}
 <div class="health" id="health-status">Healthy</div>
 <a class="logout" href="/logout">Logout</a>
 </div>
-<div class="container">
-<div class="nav">
+<div class="layout">
+<div class="sidebar">
+<div class="nav-group">
+<div class="nav-group-title">Dashboard</div>
 <button class="active" onclick="showTab('overview')">Overview</button>
 <button onclick="showTab('guided')">Guided Flow</button>
+</div>
+<div class="nav-group">
+<div class="nav-group-title">Identity</div>
 <button onclick="showTab('principals')">Principals</button>
 <button onclick="showTab('agents')">Agents</button>
 <button onclick="showTab('resources')">Resources</button>
+<button onclick="showTab('idp')">IdP Federation</button>
+</div>
+<div class="nav-group">
+<div class="nav-group-title">Authorization</div>
 <button onclick="showTab('policies')">Policies</button>
 <button onclick="showTab('delegation')">Delegation</button>
 <button onclick="showTab('access')">Test Access</button>
 <button onclick="showTab('approvals')">Approvals</button>
+</div>
+<div class="nav-group">
+<div class="nav-group-title">Monitoring</div>
 <button onclick="showTab('sessions')">Sessions</button>
 <button onclick="showTab('audit')">Audit Trail</button>
-<button onclick="showTab('vault')">Vault</button>
-<button onclick="showTab('idp')">IdP</button>
 </div>
+<div class="nav-group">
+<div class="nav-group-title">Security</div>
+<button onclick="showTab('vault')">Vault</button>
+</div>
+</div>
+<div class="main">
 
 <div id="overview" class="tab-content active">
 <div class="grid">
@@ -417,7 +436,7 @@ select option{background:#1a1d29}
 const API='';
 const state={guidedStep:1,guidedPrincipalId:null,guidedAgentId:null,guidedPolicyId:null,guidedGrantToken:null,guidedApprovalId:null};
 
-function showTab(t){document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));document.getElementById(t).classList.add('active');loadTab(t)}
+function showTab(t){document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));document.getElementById(t).classList.add('active');document.querySelectorAll('.sidebar button').forEach(b=>b.classList.remove('active'));const btn=document.querySelector('.sidebar button[onclick*="'+t+'"]');if(btn)btn.classList.add('active');loadTab(t)}
 async function f(url,opts){const r=await fetch(API+url,opts);const t=await r.text();if(!r.ok)throw new Error(t);try{return r.json()}catch{return t}}
 async function fPost(url,body){return f(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}
 function toast(msg,type='success'){const d=document.getElementById('toast');d.className='toast toast-'+type;d.textContent=msg;setTimeout(()=>d.className='',3000)}
