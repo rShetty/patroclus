@@ -3,6 +3,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::Html,
+    response::IntoResponse,
     routing::{get, post},
 };
 use chrono::{Duration, Utc};
@@ -26,6 +27,8 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
         // Health
         ("/health".to_string(), get(health)),
         ("/health/ready".to_string(), get(health_ready)),
+        // Well-known — public key distribution for resource servers
+        ("/.well-known/jwks.json".to_string(), get(jwks)),
         // Agent-facing
         ("/v1/agent/request-access".to_string(), post(request_access)),
         ("/v1/agent/check".to_string(), post(check_access)),
@@ -142,6 +145,22 @@ async fn health_ready(State(state): State<AppState>) -> (StatusCode, Json<serde_
             Json(serde_json::json!({ "status": "not-ready", "database": e.to_string() })),
         ),
     }
+}
+
+// ── Well-known endpoints ──────────────────────────────────────────
+
+/// RFC 7517 JWKS endpoint: publishes the public half of each configured
+/// signing key so resource servers can validate issued tokens offline.
+async fn jwks(State(state): State<AppState>) -> Result<axum::response::Response, PatroclusError> {
+    let body = state.token_issuer.public_jwks();
+    Ok((
+        [(
+            axum::http::header::CACHE_CONTROL,
+            "public, max-age=300, stale-while-revalidate=86400",
+        )],
+        Json(body),
+    )
+        .into_response())
 }
 
 // ── Agent-facing routes ───────────────────────────────────────────
