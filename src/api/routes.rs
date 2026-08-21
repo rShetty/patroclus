@@ -208,6 +208,9 @@ async fn request_access(
         ));
     }
     let agent = state.db.get_agent(req.agent_id).await?;
+    // Full RFC 8693-style chain captured from a presented delegation token,
+    // so decision audit entries show who delegated to whom.
+    let mut presented_delegation_chain: Option<Vec<crate::token::DelegationHop>> = None;
     let principal = if let Some(token) = &req.delegation_token {
         // RFC 8707 audience binding: a delegation grant is only usable by the
         // agent it is addressed to, so reject tokens bound to any other
@@ -216,6 +219,7 @@ async fn request_access(
         let claims = state
             .token_verifier
             .verify(token, Some(&expected_audience))?;
+        presented_delegation_chain = claims.act.delegation_chain.clone();
         state
             .db
             .get_principal_by_email(&claims.sub.replace("user:", ""))
@@ -360,8 +364,10 @@ async fn request_access(
         resource: req.resource,
         decision: eval.decision.clone(),
         reason: eval.reason.clone(),
-        delegation_chain: None,
+        delegation_chain: presented_delegation_chain
+            .map(|chain| serde_json::to_value(&chain).unwrap_or(serde_json::Value::Null)),
         token_jti: response.token.as_ref().map(|t| t.jti.clone()),
+        dry_run: false,
     };
     state.db.create_audit_entry(&audit).await?;
 
@@ -399,13 +405,31 @@ async fn check_access(
 
     let eval = state.eval_engine(&ctx)?;
 
+    let decision_str = match &eval.decision {
+        Decision::Allow => "allow",
+        Decision::Deny => "deny",
+        Decision::RequireApproval { .. } => "require_approval",
+    };
+    state.metrics.record_decision(decision_str, &req.action);
+
+    // Dry-run decisions are audited too, flagged `dry_run` so operators can
+    // separate simulated checks from enforced access in compliance reviews.
+    let audit = CreateAuditEntry {
+        agent_id: agent.id,
+        principal_id: principal.as_ref().map(|p| p.id),
+        action: req.action.clone(),
+        resource: req.resource.clone(),
+        decision: eval.decision.clone(),
+        reason: eval.reason.clone(),
+        delegation_chain: None,
+        token_jti: None,
+        dry_run: true,
+    };
+    state.db.create_audit_entry(&audit).await?;
+
     Ok(Json(serde_json::json!({
         "allowed": matches!(eval.decision, Decision::Allow),
-        "decision": match eval.decision {
-            Decision::Allow => "allow",
-            Decision::Deny => "deny",
-            Decision::RequireApproval { .. } => "require_approval",
-        },
+        "decision": decision_str,
         "approved_scopes": eval.approved_scopes,
         "reason": eval.reason,
     })))

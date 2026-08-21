@@ -503,13 +503,14 @@ impl Database {
             reason: entry.reason.clone(),
             delegation_chain: entry.delegation_chain.clone(),
             token_jti: entry.token_jti.clone(),
+            dry_run: entry.dry_run,
             timestamp: now,
         };
         audit.row_hash = audit.compute_hash();
 
         conn.execute(
-            "INSERT INTO audit_log (prev_hash, row_hash, agent_id, principal_id, action, resource, decision, reason, delegation_chain, token_jti, timestamp)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO audit_log (prev_hash, row_hash, agent_id, principal_id, action, resource, decision, reason, delegation_chain, token_jti, dry_run, timestamp)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 audit.prev_hash,
                 audit.row_hash,
@@ -521,6 +522,7 @@ impl Database {
                 audit.reason,
                 audit.delegation_chain.as_ref().map(|v| v.to_string()),
                 audit.token_jti,
+                audit.dry_run,
                 audit.timestamp.to_rfc3339(),
             ],
         )?;
@@ -536,7 +538,7 @@ impl Database {
 
     fn list_audit_entries_sync(conn: &Connection, limit: i64) -> Result<Vec<AuditEntry>> {
         let mut stmt = conn.prepare(
-            "SELECT id, prev_hash, row_hash, agent_id, principal_id, action, resource, decision, reason, delegation_chain, token_jti, timestamp
+            "SELECT id, prev_hash, row_hash, agent_id, principal_id, action, resource, decision, reason, delegation_chain, token_jti, dry_run, timestamp
              FROM audit_log ORDER BY id DESC LIMIT ?",
         )?;
         let entries = stmt.query_map(params![limit], |row| {
@@ -554,7 +556,8 @@ impl Database {
                 reason: row.get(8)?,
                 delegation_chain: chain_str.and_then(|s| serde_json::from_str(&s).ok()),
                 token_jti: row.get(10)?,
-                timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(11)?)
+                dry_run: row.get::<_, i64>(11)? != 0,
+                timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(12)?)
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
             })
@@ -566,6 +569,48 @@ impl Database {
         Ok(result)
     }
 
+    /// Fetch the complete audit log in insertion order (ascending id).
+    ///
+    /// The hash-chain verifier needs every row from genesis onward — a
+    /// truncated window would report spurious linkage breaks at its edges.
+    pub async fn all_audit_entries(&self) -> Result<Vec<AuditEntry>> {
+        self.spawn_read(Self::all_audit_entries_sync).await
+    }
+
+    fn all_audit_entries_sync(conn: &Connection) -> Result<Vec<AuditEntry>> {
+        let mut stmt = conn.prepare(
+            "SELECT id, prev_hash, row_hash, agent_id, principal_id, action, resource, decision, reason, delegation_chain, token_jti, dry_run, timestamp
+             FROM audit_log ORDER BY id ASC",
+        )?;
+        let entries = stmt.query_map([], Self::audit_entry_from_row)?;
+        let mut result = Vec::new();
+        for entry in entries {
+            result.push(entry?);
+        }
+        Ok(result)
+    }
+
+    fn audit_entry_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuditEntry> {
+        let principal_id_str: Option<String> = row.get(4)?;
+        let chain_str: Option<String> = row.get(9)?;
+        Ok(AuditEntry {
+            id: row.get(0)?,
+            prev_hash: row.get(1)?,
+            row_hash: row.get(2)?,
+            agent_id: Uuid::parse_str(&row.get::<_, String>(3)?).unwrap_or_default(),
+            principal_id: principal_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
+            action: row.get(5)?,
+            resource: row.get(6)?,
+            decision: row.get(7)?,
+            reason: row.get(8)?,
+            delegation_chain: chain_str.and_then(|s| serde_json::from_str(&s).ok()),
+            token_jti: row.get(10)?,
+            dry_run: row.get::<_, i64>(11)? != 0,
+            timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(12)?)
+                .map(|d| d.with_timezone(&Utc))
+                .unwrap_or(Utc::now()),
+        })
+    }
     // ── Policy management ──────────────────────────────────────────
 
     pub async fn load_active_policy_yaml(&self) -> Result<String> {
@@ -1285,6 +1330,43 @@ impl Database {
         })
         .await
     }
+}
+
+/// Read every audit row in insertion order from an already-open connection.
+///
+/// Used by the `verify-chain` CLI, which opens the database read-only so
+/// tamper inspection can never mutate evidence.
+pub fn read_audit_entries_for_verification(conn: &rusqlite::Connection) -> Result<Vec<AuditEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, prev_hash, row_hash, agent_id, principal_id, action, resource, decision, reason, delegation_chain, token_jti, dry_run, timestamp
+         FROM audit_log ORDER BY id ASC",
+    )?;
+    let entries = stmt.query_map([], |row| {
+        let principal_id_str: Option<String> = row.get(4)?;
+        let chain_str: Option<String> = row.get(9)?;
+        Ok(AuditEntry {
+            id: row.get(0)?,
+            prev_hash: row.get(1)?,
+            row_hash: row.get(2)?,
+            agent_id: Uuid::parse_str(&row.get::<_, String>(3)?).unwrap_or_default(),
+            principal_id: principal_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
+            action: row.get(5)?,
+            resource: row.get(6)?,
+            decision: row.get(7)?,
+            reason: row.get(8)?,
+            delegation_chain: chain_str.and_then(|s| serde_json::from_str(&s).ok()),
+            token_jti: row.get(10)?,
+            dry_run: row.get::<_, i64>(11)? != 0,
+            timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(12)?)
+                .map(|d| d.with_timezone(&Utc))
+                .unwrap_or(Utc::now()),
+        })
+    })?;
+    let mut result = Vec::new();
+    for entry in entries {
+        result.push(entry?);
+    }
+    Ok(result)
 }
 
 #[derive(Debug, Clone)]

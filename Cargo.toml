@@ -39,3 +39,4 @@ reqwest = { version = "0.12", features = ["json"] }
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
 tempfile = "3"
+rusqlite = { version = "0.32", features = ["bundled"] }

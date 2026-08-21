@@ -1817,3 +1817,260 @@ async fn test_client_key_provisioning_returns_raw_once_and_works() {
             .contains(&client_key)
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// AUDIT CHAIN VERIFICATION (issue #8)
+// ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn test_verify_chain_passes_over_live_traffic() {
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
+
+    for resource in ["dev-db/a", "dev-db/b", "dev-db/c"] {
+        send_agent_request(
+            &server.app,
+            "POST",
+            "/v1/agent/request-access",
+            &agent_key,
+            Some(json!({
+                "agent_id": agent_id,
+                "action": "read",
+                "resource": resource,
+                "requested_scopes": ["db:read"]
+            })),
+        )
+        .await;
+    }
+
+    let entries = server.state.db.all_audit_entries().await.unwrap();
+    assert_eq!(entries.len(), 3);
+
+    let result = patroclus::audit::verify_chain(&entries);
+    assert!(
+        result.is_valid(),
+        "chain over live traffic must verify: {:?}",
+        result.first_broken_link
+    );
+    assert_eq!(result.entries_checked, 3);
+}
+
+#[tokio::test]
+async fn test_verify_chain_detects_tampered_row() {
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
+
+    for resource in ["dev-db/a", "dev-db/b"] {
+        send_agent_request(
+            &server.app,
+            "POST",
+            "/v1/agent/request-access",
+            &agent_key,
+            Some(json!({
+                "agent_id": agent_id,
+                "action": "read",
+                "resource": resource,
+                "requested_scopes": ["db:read"]
+            })),
+        )
+        .await;
+    }
+
+    // Simulate a tamperer with direct database write access: rewrite a
+    // decision without recomputing the chain.
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = {
+        // The in-memory DB cannot be reached from a second connection, so
+        // rebuild the scenario on a file-backed database.
+        let db_path = dir.path().join("tamper.db");
+        let config = patroclus::config::DatabaseConfig {
+            path: db_path.to_string_lossy().to_string(),
+            read_pool_size: 0,
+        };
+        let db = patroclus::db::Database::with_config(&config).unwrap();
+        db.create_audit_entry(&patroclus::audit::CreateAuditEntry {
+            agent_id: uuid::Uuid::parse_str(&agent_id).unwrap(),
+            principal_id: None,
+            action: "read".to_string(),
+            resource: "dev-db/a".to_string(),
+            decision: patroclus::policy::Decision::Allow,
+            reason: "honest".to_string(),
+            delegation_chain: None,
+            token_jti: None,
+            dry_run: false,
+        })
+        .await
+        .unwrap();
+        db.create_audit_entry(&patroclus::audit::CreateAuditEntry {
+            agent_id: uuid::Uuid::parse_str(&agent_id).unwrap(),
+            principal_id: None,
+            action: "read".to_string(),
+            resource: "dev-db/b".to_string(),
+            decision: patroclus::policy::Decision::Allow,
+            reason: "honest".to_string(),
+            delegation_chain: None,
+            token_jti: None,
+            dry_run: false,
+        })
+        .await
+        .unwrap();
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute("UPDATE audit_log SET reason = 'forged' WHERE id = 1", [])
+            .unwrap();
+        db_path
+    };
+
+    // The verifier must reject the modified row.
+    let conn =
+        rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    let entries = patroclus::db::read_audit_entries_for_verification(&conn).unwrap();
+    let result = patroclus::audit::verify_chain(&entries);
+    assert!(!result.is_valid(), "tampered row must break the chain");
+    let broken = result.first_broken_link.unwrap();
+    assert_eq!(broken.row_id, 1);
+    assert_eq!(
+        broken.reason,
+        patroclus::audit::BrokenLinkReason::RowHashMismatch
+    );
+}
+
+#[tokio::test]
+async fn test_dry_run_checks_are_audited_with_flag() {
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
+
+    // One dry-run check, then one enforced request.
+    send_agent_request(
+        &server.app,
+        "POST",
+        "/v1/agent/check",
+        &agent_key,
+        Some(json!({
+            "agent_id": agent_id,
+            "action": "read",
+            "resource": "dev-db/dry",
+            "requested_scopes": ["db:read"]
+        })),
+    )
+    .await;
+    send_agent_request(
+        &server.app,
+        "POST",
+        "/v1/agent/request-access",
+        &agent_key,
+        Some(json!({
+            "agent_id": agent_id,
+            "action": "read",
+            "resource": "dev-db/real",
+            "requested_scopes": ["db:read"]
+        })),
+    )
+    .await;
+
+    let entries = server.state.db.all_audit_entries().await.unwrap();
+    assert_eq!(entries.len(), 2, "dry-run check must be audited");
+
+    let dry: Vec<_> = entries.iter().filter(|e| e.dry_run).collect();
+    let enforced: Vec<_> = entries.iter().filter(|e| !e.dry_run).collect();
+    assert_eq!(dry.len(), 1, "exactly one dry-run entry");
+    assert_eq!(dry[0].resource, "dev-db/dry");
+    assert_eq!(dry[0].decision, "allow");
+    assert_eq!(enforced.len(), 1, "exactly one enforced entry");
+    assert_eq!(enforced[0].resource, "dev-db/real");
+    assert!(
+        enforced[0].token_jti.is_some(),
+        "enforced allow issues a token"
+    );
+
+    // Both entries must still form a verifiable chain.
+    assert!(patroclus::audit::verify_chain(&entries).is_valid());
+}
+
+#[tokio::test]
+async fn test_delegation_chain_captured_in_decision_audit() {
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        harness::create_agent_with_key(&server.app, "orchestrator", "orch@test.com").await;
+    let (worker_id, _, worker_key) =
+        harness::create_agent_with_key(&server.app, "worker", "wkr@test.com").await;
+
+    // Principal → orchestrator
+    let (_, body) = send_request(
+        &server.app,
+        "POST",
+        "/v1/principal/delegate",
+        Some(json!({
+            "agent_id": agent_id,
+            "scopes": ["calendar:read"],
+            "expires_in_seconds": 3600
+        })),
+    )
+    .await;
+    let orch_token = body["delegation_token"].as_str().unwrap();
+
+    // Orchestrator → worker (depth 1, chain of one hop)
+    let (status, body) = send_agent_request(
+        &server.app,
+        "POST",
+        "/v1/agent/delegate",
+        &agent_key,
+        Some(json!({
+            "parent_grant_token": orch_token,
+            "sub_agent_id": worker_id,
+            "scopes": ["calendar:read"],
+            "expires_in_seconds": 1800
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let worker_token = body["delegated_token"].as_str().unwrap();
+
+    // Worker uses the delegated token — the audit entry must capture the
+    // full chain, not None.
+    let (status, body) = send_agent_request(
+        &server.app,
+        "POST",
+        "/v1/agent/request-access",
+        &worker_key,
+        Some(json!({
+            "agent_id": worker_id,
+            "action": "read",
+            "resource": "calendar/events",
+            "requested_scopes": ["calendar:read"],
+            "delegation_token": worker_token
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["decision"], "allow");
+
+    let entries = server.state.db.all_audit_entries().await.unwrap();
+    let worker_entry = entries
+        .iter()
+        .find(|e| e.resource == "calendar/events")
+        .expect("worker decision audited");
+    let chain = worker_entry
+        .delegation_chain
+        .as_ref()
+        .expect("full chain captured");
+    let hops = chain.as_array().expect("chain is a JSON array");
+    assert_eq!(hops.len(), 1);
+    assert!(hops[0]["sub"].as_str().unwrap().starts_with("user:"));
+    assert!(hops[0]["act"].as_str().unwrap().starts_with("agent:"));
+
+    // Chain integrity holds with delegation_chain included in the hash.
+    assert!(patroclus::audit::verify_chain(&entries).is_valid());
+}

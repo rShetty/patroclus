@@ -80,7 +80,8 @@ short-lived scoped credential is issued or a human approval is triggered.
 
 ### Audit & Compliance
 - **Hash-chained audit log** — SHA-256 chain, tamper-evident
-- **Every decision logged** — allow, deny, require_approval with full context
+- **Chain verifier** — `patroclus verify-chain` recomputes the chain and reports the first broken link (exit code 1 on tamper, `--json` for machines)
+- **Every decision logged** — allow, deny, require_approval with full context; dry-run `/v1/agent/check` decisions audited with a `dry_run` flag
 - **Attribution-complete** — every action traces to human or system authority
 - **Delegation chain in log** — full chain captured, not reconstructed
 
@@ -152,6 +153,9 @@ cargo build --release
 
 # Start the server
 ./target/release/patroclus serve --config config.toml
+
+# Verify the audit hash chain (tamper detection)
+./target/release/patroclus verify-chain --db patroclus.db
 ```
 
 ## Python SDK

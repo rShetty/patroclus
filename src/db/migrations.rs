@@ -107,6 +107,7 @@ pub fn run(conn: &Connection) -> Result<()> {
             reason TEXT NOT NULL,
             delegation_chain TEXT,
             token_jti TEXT,
+            dry_run INTEGER NOT NULL DEFAULT 0,
             timestamp TEXT NOT NULL
         );
 
@@ -137,13 +138,18 @@ pub fn run(conn: &Connection) -> Result<()> {
 
     // Column additions for existing databases. SQLite raises
     // "duplicate column name" when the column already exists — ignore it.
-    let add_client_key = "ALTER TABLE agents ADD COLUMN client_key_hash TEXT";
-    if let Err(rusqlite::Error::SqliteFailure(err, _)) = conn.execute(add_client_key, []) {
-        // SQLITE_ERROR(1) with extended code covering duplicate columns.
-        if err.extended_code != rusqlite::ffi::SQLITE_CONSTRAINT
-            && err.extended_code != rusqlite::ffi::SQLITE_ERROR
-        {
-            return Err(rusqlite::Error::SqliteFailure(err, None));
+    let column_additions = [
+        "ALTER TABLE agents ADD COLUMN client_key_hash TEXT",
+        "ALTER TABLE audit_log ADD COLUMN dry_run INTEGER NOT NULL DEFAULT 0",
+    ];
+    for stmt in column_additions {
+        if let Err(rusqlite::Error::SqliteFailure(err, _)) = conn.execute(stmt, []) {
+            // SQLITE_ERROR(1) with extended code covering duplicate columns.
+            if err.extended_code != rusqlite::ffi::SQLITE_CONSTRAINT
+                && err.extended_code != rusqlite::ffi::SQLITE_ERROR
+            {
+                return Err(rusqlite::Error::SqliteFailure(err, None));
+            }
         }
     }
 
