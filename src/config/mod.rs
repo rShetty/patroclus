@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::idp::GroupPolicyMapping;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub server: ServerConfig,
@@ -64,11 +66,18 @@ pub struct IdpProvider {
     pub name: String,
     pub issuer: String,
     pub client_id: String,
+    /// Client secret. Inject via environment
+    /// (`PATROCLUS_IDP__PROVIDERS__<NAME>__CLIENT_SECRET`) rather than a file
+    /// in production.
     pub client_secret: String,
     #[serde(default)]
     pub scopes: Vec<String>,
     #[serde(default)]
     pub group_claim: String,
+    /// Group → policy mappings applied when a user authenticates through this
+    /// provider. Matched groups are combined into the session policy.
+    #[serde(default)]
+    pub group_policy_mappings: Vec<GroupPolicyMapping>,
 }
 
 impl Default for Config {

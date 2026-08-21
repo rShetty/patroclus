@@ -6,6 +6,7 @@ use crate::api::auth::AuthConfig;
 use crate::config::Config;
 use crate::crypto::KeyPair;
 use crate::db::Database;
+use crate::idp::PkceStore;
 use crate::policy::PolicyEngine;
 use crate::session::SessionStore;
 use crate::token::issuer::TokenIssuer;
@@ -24,6 +25,9 @@ pub struct AppState {
     pub session_store: Arc<SessionStore>,
     /// Prometheus metric families served at `/metrics`.
     pub metrics: Arc<crate::metrics::Metrics>,
+    /// Server-side PKCE transactions for OIDC federation, keyed by the
+    /// single-use `state` parameter.
+    pub pkce_store: Arc<PkceStore>,
 }
 
 impl AppState {
@@ -78,11 +82,18 @@ impl AppState {
             vault,
             session_store,
             metrics: Arc::new(crate::metrics::Metrics::new()),
+            pkce_store: Arc::new(PkceStore::new()),
         })
     }
 
     pub async fn new_test() -> anyhow::Result<Self> {
-        let config = Config::default();
+        Self::new_test_with_config(Config::default()).await
+    }
+
+    /// Like [`Self::new_test`] but with a caller-supplied [`Config`] (used to
+    /// exercise config-driven behaviour such as IdP federation in tests).
+    /// In-memory database and throwaway keys; no environment access.
+    pub async fn new_test_with_config(config: Config) -> anyhow::Result<Self> {
         let db = Database::new(":memory:")?;
         db.create_default_policy().await?;
 
@@ -115,6 +126,7 @@ impl AppState {
             vault: Some(vault),
             session_store,
             metrics: Arc::new(crate::metrics::Metrics::new()),
+            pkce_store: Arc::new(PkceStore::new()),
         })
     }
 

@@ -1065,21 +1065,29 @@ async fn idp_authorize(
         })?;
 
     let redirect_uri = format!("{}/v1/idp/callback", state.config.token.issuer);
-    let state_param = uuid::Uuid::now_v7().to_string();
-    let code_verifier = uuid::Uuid::now_v7().to_string();
+    let state_param = crate::idp::generate_state();
+    // PKCE: the verifier is generated here and kept server-side, keyed by the
+    // single-use state. Only the S256 challenge travels to the IdP and the
+    // verifier is never returned to the client.
+    let code_verifier = crate::idp::generate_code_verifier();
+    let code_challenge = crate::idp::pkce_s256_challenge(&code_verifier);
+
+    state
+        .pkce_store
+        .insert(state_param.clone(), provider.name.clone(), code_verifier);
 
     let auth_url = crate::idp::IdpFederation::authorization_url(
         provider,
         &redirect_uri,
         &state_param,
-        &code_verifier,
+        &code_challenge,
     );
 
     Ok(Json(serde_json::json!({
         "authorization_url": auth_url,
         "state": state_param,
-        "code_verifier": code_verifier,
         "provider": provider_name,
+        "code_challenge_method": "S256",
     })))
 }
 
@@ -1099,14 +1107,33 @@ async fn idp_callback(
         ));
     }
 
-    let provider = &state.config.idp.providers[0];
+    // Server-side state validation: the callback must present a state we
+    // issued, that has not expired, and that has not been used before. The
+    // entry is consumed (removed) on first use.
+    let txn = state.pkce_store.consume(&params.state).ok_or_else(|| {
+        PatroclusError::Forbidden("invalid, expired or reused OAuth state parameter".to_string())
+    })?;
+
+    let provider = state
+        .config
+        .idp
+        .providers
+        .iter()
+        .find(|p| p.name == txn.provider_name)
+        .ok_or_else(|| {
+            PatroclusError::Config(format!(
+                "IdP provider '{}' not configured",
+                txn.provider_name
+            ))
+        })?;
+
     let redirect_uri = format!("{}/v1/idp/callback", state.config.token.issuer);
 
     let access_token = crate::idp::IdpFederation::exchange_oidc_token(
         provider,
         &params.code,
         &redirect_uri,
-        &params.state,
+        &txn.code_verifier,
     )
     .await?;
 
@@ -1122,11 +1149,33 @@ async fn idp_callback(
                 external_id: user_info.subject.clone(),
                 idp_provider: provider.name.clone(),
                 email: user_info.email.clone(),
-                display_name: user_info.name.unwrap_or_else(|| user_info.email.clone()),
+                display_name: user_info
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| user_info.email.clone()),
             })
             .await?
             .id
     };
+
+    // Wire group claims into policies: every group with a configured mapping
+    // contributes its policy fragment and scopes to the session policy.
+    let (policy_yaml, mapped_scopes) = crate::idp::IdpFederation::build_policy_from_groups(
+        &user_info,
+        &provider.group_policy_mappings,
+    )
+    .unzip();
+
+    if let Some(policy_yaml) = policy_yaml.as_deref().filter(|p| !p.is_empty()) {
+        state
+            .db
+            .create_policy(&format!("idp-{}", principal_id), "yaml", policy_yaml)
+            .await?;
+        state
+            .reload_policy()
+            .await
+            .map_err(|e| PatroclusError::Config(e.to_string()))?;
+    }
 
     Ok(Json(serde_json::json!({
         "authenticated": true,
@@ -1134,6 +1183,8 @@ async fn idp_callback(
         "email": user_info.email,
         "groups": user_info.groups,
         "issuer": user_info.issuer,
+        "mapped_scopes": mapped_scopes.unwrap_or_default(),
+        "policy_applied": policy_yaml.is_some(),
     })))
 }
 

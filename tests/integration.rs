@@ -2074,3 +2074,333 @@ async fn test_delegation_chain_captured_in_decision_audit() {
     // Chain integrity holds with delegation_chain included in the hash.
     assert!(patroclus::audit::verify_chain(&entries).is_valid());
 }
+
+// ── OIDC PKCE round-trip with a mocked IdP ─────────────────────────
+
+/// Spawns a local HTTP server acting as a minimal OIDC provider exposing
+/// `/authorize` (records the query parameters the Patroclus server sent),
+/// `/token` and `/userinfo`. The token endpoint enforces PKCE S256 by
+/// recomputing the challenge from the submitted verifier.
+struct MockIdp {
+    base_url: String,
+    received: Arc<std::sync::Mutex<MockIdpRequests>>,
+}
+
+#[derive(Default, Clone)]
+struct MockIdpRequests {
+    authorize: Vec<serde_json::Value>,
+    token_verifier: Option<String>,
+    token_challenge_sent_by_patroclus: Option<String>,
+}
+
+impl MockIdp {
+    async fn spawn(group_claim_value: Value) -> Self {
+        let received = Arc::new(std::sync::Mutex::new(MockIdpRequests::default()));
+        let state_for_router = MockIdpState {
+            requests: received.clone(),
+            group_claim_value,
+        };
+
+        let app = axum::Router::new()
+            .route("/authorize", axum::routing::get(mock_authorize))
+            .route(
+                "/token",
+                axum::routing::post(
+                    move |axum::extract::State(state): axum::extract::State<MockIdpState>,
+                          axum::Form(form): axum::Form<HashMap<String, String>>| {
+                        mock_token(form, state)
+                    },
+                ),
+            )
+            .route("/userinfo", axum::routing::get(mock_userinfo))
+            .with_state(state_for_router.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        MockIdp {
+            base_url: format!("http://{addr}"),
+            received,
+        }
+    }
+}
+
+use patroclus::config::{Config, IdpProvider};
+use patroclus::idp::GroupPolicyMapping;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+#[derive(Clone)]
+struct MockIdpState {
+    requests: Arc<std::sync::Mutex<MockIdpRequests>>,
+    group_claim_value: Value,
+}
+
+async fn mock_authorize(
+    axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
+    state: axum::extract::State<MockIdpState>,
+) -> &'static str {
+    state.requests.lock().unwrap().authorize.push(json!({
+        "client_id": query.get("client_id"),
+        "redirect_uri": query.get("redirect_uri"),
+        "state": query.get("state"),
+        "code_challenge": query.get("code_challenge"),
+        "code_challenge_method": query.get("code_challenge_method"),
+        "response_type": query.get("response_type"),
+    }));
+    "ok"
+}
+
+async fn mock_token(form: HashMap<String, String>, state: MockIdpState) -> axum::Json<Value> {
+    let code_verifier = form.get("code_verifier").cloned();
+    // PKCE S256 verification, as a real IdP performs it.
+    let expected_challenge = code_verifier
+        .as_deref()
+        .map(patroclus::idp::pkce_s256_challenge);
+    {
+        let mut reqs = state.requests.lock().unwrap();
+        reqs.token_verifier = code_verifier;
+        reqs.token_challenge_sent_by_patroclus = None; // filled from /authorize below
+    }
+    // A real IdP compares against the challenge bound at /authorize time.
+    if let Some(challenge_from_authorize) = state
+        .requests
+        .lock()
+        .unwrap()
+        .authorize
+        .last()
+        .and_then(|a| a["code_challenge"].as_str())
+        .map(|s| s.to_string())
+    {
+        let ok = expected_challenge.as_deref() == Some(challenge_from_authorize.as_str());
+        assert!(
+            ok,
+            "mock IdP: code_verifier does not hash to the authorize-time code_challenge"
+        );
+    } else {
+        panic!("mock IdP: token exchange without prior authorization");
+    }
+
+    axum::Json(json!({
+        "access_token": "mock-access-token",
+        "token_type": "Bearer",
+        "expires_in": 3600
+    }))
+}
+
+async fn mock_userinfo(
+    axum::extract::State(state): axum::extract::State<MockIdpState>,
+    headers: axum::http::HeaderMap,
+) -> axum::Json<Value> {
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(auth, "Bearer mock-access-token", "userinfo requires bearer");
+    axum::Json(json!({
+        "sub": "user-99",
+        "email": "carol@example.com",
+        "name": "Carol",
+        &state.group_claim_key(): state.group_claim_value,
+    }))
+}
+
+impl MockIdpState {
+    fn group_claim_key(&self) -> String {
+        "groups".to_string()
+    }
+}
+
+fn idp_test_config(idp_base_url: &str) -> Config {
+    let mut config = Config::default();
+    config.idp.enabled = true;
+    config.idp.providers = vec![IdpProvider {
+        name: "mock".to_string(),
+        issuer: idp_base_url.to_string(),
+        client_id: "patroclus-test-client".to_string(),
+        client_secret: "mock-secret".to_string(),
+        scopes: vec!["openid".to_string(), "email".to_string()],
+        group_claim: "groups".to_string(),
+        group_policy_mappings: vec![
+            GroupPolicyMapping {
+                group: "engineering".to_string(),
+                policy_yaml:
+                    "- name: eng-allow-read\n  actions: [\"read\"]\n  resources: [\"dev-*\"]\n  scopes: [\"db:read\"]\n  decision: allow\n  reason: Engineering read access"
+                        .to_string(),
+                scopes: vec!["db:read".to_string()],
+                max_spend: Some(50.0),
+            },
+            GroupPolicyMapping {
+                group: "unrelated-group".to_string(),
+                policy_yaml: "- name: unrelated\n  decision: deny\n  reason: nope".to_string(),
+                scopes: vec![],
+                max_spend: None,
+            },
+        ],
+    }];
+    config
+}
+
+#[tokio::test]
+async fn test_oidc_pkce_full_roundtrip_with_mocked_idp() {
+    let idp = MockIdp::spawn(json!(["engineering"])).await;
+
+    let app = {
+        let state =
+            patroclus::api::state::AppState::new_test_with_config(idp_test_config(&idp.base_url))
+                .await
+                .unwrap();
+        patroclus::api::server::create_router(state)
+    };
+
+    // ── Step 1: authorize — response must NOT contain the verifier and the
+    // URL must carry an S256 challenge.
+    let (status, body) = send_request(&app, "GET", "/v1/idp/authorize/mock", None).await;
+    assert_eq!(status, StatusCode::OK, "authorize failed: {body}");
+    let auth_url = body["authorization_url"].as_str().unwrap();
+    let returned_state = body["state"].as_str().unwrap().to_string();
+    assert!(
+        body.get("code_verifier").is_none(),
+        "verifier leaked to client"
+    );
+    assert_eq!(body["code_challenge_method"], "S256");
+
+    // Browser hop: the user-agent follows the authorization_url, which binds
+    // the challenge at the IdP (recorded by our mock) and issues a code.
+    let http = reqwest::Client::new();
+    let auth_page = http.get(auth_url).send().await.unwrap();
+    assert!(auth_page.status().is_success(), "IdP authorize failed");
+    let idp_code = format!("auth-code-{}", uuid::Uuid::now_v7());
+
+    // Parse the authorization URL without external crates: split off the query
+    // string manually.
+    let (base, query_str) = auth_url
+        .split_once('?')
+        .expect("authorization_url carries a query string");
+    assert!(
+        base.ends_with("/authorize"),
+        "URL must target the IdP authorize endpoint"
+    );
+    let query: HashMap<String, String> = query_str
+        .split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    let sent_challenge = query
+        .get("code_challenge")
+        .expect("challenge in URL")
+        .clone();
+    assert_eq!(
+        query.get("code_challenge_method").map(String::as_str),
+        Some("S256")
+    );
+    // Challenge is base64url SHA-256: 43 chars (a raw verifier is also 43, but
+    // the client never receives the real one — asserted above via the missing
+    // `code_verifier` response field).
+    assert_eq!(sent_challenge.len(), 43);
+
+    let authorize_recorded = idp
+        .received
+        .lock()
+        .unwrap()
+        .authorize
+        .last()
+        .cloned()
+        .unwrap();
+    assert_eq!(authorize_recorded["client_id"], "patroclus-test-client");
+    assert_eq!(
+        authorize_recorded["code_challenge_method"], "S256",
+        "IdP must be told the S256 method"
+    );
+    assert_eq!(
+        authorize_recorded["state"], returned_state,
+        "browser hop carries the issued state"
+    );
+
+    // ── Step 2: callback with forged/unknown state is rejected BEFORE the IdP
+    // is contacted.
+    let (status, body) = send_request(
+        &app,
+        "GET",
+        "/v1/idp/callback?code=stolen-code&state=forged-state",
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "forged state accepted: {body}"
+    );
+
+    // ── Step 3: legitimate callback using the issued state. The mocked IdP
+    // verifies the S256 proof inside its /token endpoint.
+    let callback_uri = format!(
+        "/v1/idp/callback?code={idp_code}&state={}",
+        urlencoding_form(&returned_state)
+    );
+    let (status, body) = send_request(&app, "GET", &callback_uri, None).await;
+    assert_eq!(status, StatusCode::OK, "callback failed: {body}");
+    assert_eq!(body["authenticated"], true);
+    assert_eq!(body["email"], "carol@example.com");
+    assert_eq!(body["groups"], json!(["engineering"]));
+    assert_eq!(body["policy_applied"], true);
+    assert_eq!(body["mapped_scopes"], json!(["db:read"]));
+
+    // The IdP saw exactly one authorization request carrying our state.
+    let reqs = idp.received.lock().unwrap();
+    assert_eq!(reqs.authorize.len(), 1);
+    assert_eq!(reqs.authorize[0]["state"], returned_state);
+    // The verifier that reached the token endpoint hashes to the challenge
+    // (asserted inside mock_token); it was never exposed to the HTTP client.
+    assert!(reqs.token_verifier.is_some());
+}
+
+// Percent-encode for a query value (states are base64url so this is a
+// formality, but keeps the test honest).
+fn urlencoding_form(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+            _ => format!("%{:02X}", c as u8),
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn test_oidc_state_is_single_use() {
+    let idp = MockIdp::spawn(json!(["engineering"])).await;
+
+    let app = {
+        let state =
+            patroclus::api::state::AppState::new_test_with_config(idp_test_config(&idp.base_url))
+                .await
+                .unwrap();
+        patroclus::api::server::create_router(state)
+    };
+
+    let (_, body) = send_request(&app, "GET", "/v1/idp/authorize/mock", None).await;
+    let state_param = body["state"].as_str().unwrap().to_string();
+
+    // Browser hop binds the challenge at the IdP before the callback runs.
+    let http = reqwest::Client::new();
+    let auth_page = http
+        .get(body["authorization_url"].as_str().unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert!(auth_page.status().is_success(), "IdP authorize failed");
+
+    let uri = format!("/v1/idp/callback?code=c1&state={state_param}");
+    let (status, _) = send_request(&app, "GET", &uri, None).await;
+    assert_eq!(status, StatusCode::OK, "first use must succeed");
+
+    // Replay: same state again must be rejected even with fresh code.
+    let uri2 = format!("/v1/idp/callback?code=c2&state={state_param}");
+    let (status, body) = send_request(&app, "GET", &uri2, None).await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "replayed state accepted: {body}"
+    );
+}
