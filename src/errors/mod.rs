@@ -44,6 +44,15 @@ pub enum PatroclusError {
     #[error("cryptographic error: {0}")]
     Crypto(String),
 
+    #[error("unauthorized: {0}")]
+    Unauthorized(String),
+
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+
+    #[error("service unavailable: {0}")]
+    Unavailable(String),
+
     #[error("not implemented: {0}")]
     NotImplemented(String),
 }
@@ -79,6 +88,9 @@ impl IntoResponse for PatroclusError {
             PatroclusError::InvalidToken(_)
             | PatroclusError::ExpiredToken
             | PatroclusError::RevokedToken(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
+            PatroclusError::Unauthorized(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
+            PatroclusError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
+            PatroclusError::Unavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
             PatroclusError::ScopeEscalation { .. }
             | PatroclusError::DelegationDepthExceeded { .. } => {
                 (StatusCode::BAD_REQUEST, self.to_string())
