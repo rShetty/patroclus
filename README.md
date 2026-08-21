@@ -158,6 +158,55 @@ cargo build --release
 ./target/release/patroclus verify-chain --db patroclus.db
 ```
 
+## Configuration
+
+Configuration lives in `config.toml` (see `patroclus init`) and can be
+overridden by environment variables. **Layering: file < environment** — an
+environment variable always wins over the file value.
+
+### Environment variables
+
+Every config field can be overridden with `PATROCLUS_<SECTION>__<FIELD>`
+(double underscore as the nesting separator, case-insensitive). Values are
+parsed as TOML scalars (numbers, booleans, and `[...]` arrays); anything else
+is taken as a literal string. Unknown variables are ignored with a warning.
+This is the supported channel for injecting **secrets** (key paths, IdP client
+secrets) in container deployments without baking them into the file.
+
+| Variable | Overrides | Example |
+|---|---|---|
+| `PATROCLUS_SERVER__HOST` | `server.host` | `0.0.0.0` |
+| `PATROCLUS_SERVER__PORT` | `server.port` | `8484` |
+| `PATROCLUS_SERVER__CORS_ALLOWED_ORIGINS` | `server.cors_allowed_origins` | `["https://console.example.com"]` |
+| `PATROCLUS_DATABASE__PATH` | `database.path` | `/var/lib/patroclus/patroclus.db` |
+| `PATROCLUS_DATABASE__READ_POOL_SIZE` | `database.read_pool_size` | `4` |
+| `PATROCLUS_TOKEN__ISSUER` | `token.issuer` | `https://patroclus.example.com` |
+| `PATROCLUS_TOKEN__PRIVATE_KEY_PATH` | `token.private_key_path` | `/run/secrets/private.pem` |
+| `PATROCLUS_TOKEN__PUBLIC_KEY_PATH` | `token.public_key_path` | `/run/secrets/public.pem` |
+| `PATROCLUS_TOKEN__DEFAULT_TTL_SECONDS` | `token.default_ttl_seconds` | `900` |
+| `PATROCLUS_TOKEN__MAX_TTL_SECONDS` | `token.max_ttl_seconds` | `3600` |
+| `PATROCLUS_POLICY__ENGINE` | `policy.engine` | `yaml` |
+| `PATROCLUS_POLICY__DEFAULT_DECISION` | `policy.default_decision` | `deny` |
+| `PATROCLUS_POLICY__MAX_DELEGATION_DEPTH` | `policy.max_delegation_depth` | `3` |
+| `PATROCLUS_VAULT__ENCRYPTION_KEY_PATH` | `vault.encryption_key_path` | `/run/secrets/vault.key` |
+
+Related (non-config) variables used by other subsystems:
+
+| Variable | Purpose |
+|---|---|
+| `PATROCLUS_ADMIN_TOKEN` | Static admin bearer token for `/v1/admin/*` (required in release builds) |
+| `PATROCLUS_INSECURE_DEV` | `1` permits unauthenticated admin routes / insecure dev keys (never production) |
+| `PATROCLUS_LOG_FORMAT` | `json` switches logs to JSON |
+
+Example:
+
+```bash
+PATROCLUS_SERVER__PORT=9000 \
+PATROCLUS_DATABASE__PATH=/data/patroclus.db \
+PATROCLUS_ADMIN_TOKEN="$(openssl rand -hex 32)" \
+./target/release/patroclus serve --config config.toml
+```
+
 ## Python SDK
 
 ```bash
