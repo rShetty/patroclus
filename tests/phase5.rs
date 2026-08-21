@@ -1,6 +1,6 @@
 mod harness;
 
-use harness::{AgentHarness, create_agent_with_key, send_request};
+use harness::{AgentHarness, create_agent_with_key, send_agent_request, send_request};
 use serde_json::json;
 
 const ADVANCED_POLICY: &str = r#"
@@ -683,4 +683,150 @@ async fn test_e2e_multi_agent_orchestration() {
     assert!(sessions.iter().any(|s| s["session_id"] == "w1-session"));
     assert!(sessions.iter().any(|s| s["session_id"] == "w2-session"));
     assert!(sessions.iter().any(|s| s["session_id"] == "orch-session"));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECURITY — kill switch cannot be evaded via session-id rotation (issue #13)
+// ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn test_kill_agent_survives_session_id_rotation() {
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        create_agent_with_key(&server.app, "agent", "rotate@test.com").await;
+
+    // Access works before the kill.
+    let mut original = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("original-session");
+    let (decision, _, _) = original
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    assert_eq!(decision, "allow");
+
+    // Emergency stop at the agent level.
+    let (status, body) = send_request(
+        &server.app,
+        "POST",
+        &format!("/v1/admin/agents/{}/kill", agent_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_eq!(body["killed"], true);
+
+    // Old session is denied...
+    let (d_old, reason_old, _) = original
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    assert_eq!(d_old, "deny");
+    assert!(reason_old.contains("killed"));
+
+    // ...and so is a brand-new session id: rotation must not evade the stop.
+    let mut rotated = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("fresh-session-after-kill");
+    let (d_new, reason_new, token) = rotated
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    assert_eq!(d_new, "deny", "session-id rotation must not bypass kill");
+    assert!(
+        reason_new.contains("Agent has been killed"),
+        "reason: {reason_new}"
+    );
+    assert!(token.is_none(), "no token may be issued after agent kill");
+
+    // Dry-run checks are denied for killed agents as well.
+    let (allowed, _) = rotated
+        .check_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    assert!(!allowed, "dry-run must also honor the agent-level kill");
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECURITY — delegated tokens are recorded and audited (issue #13)
+// ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn test_delegation_is_recorded_and_audited() {
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (parent_id, _, parent_key) =
+        create_agent_with_key(&server.app, "parent", "deleg-parent@test.com").await;
+    let (child_id, _, _child_key) =
+        create_agent_with_key(&server.app, "child", "deleg-child@test.com").await;
+
+    let (_, body) = send_request(
+        &server.app,
+        "POST",
+        "/v1/principal/delegate",
+        Some(json!({
+            "agent_id": parent_id,
+            "scopes": ["api:call"],
+            "expires_in_seconds": 3600
+        })),
+    )
+    .await;
+    let parent_token = body["delegation_token"].as_str().unwrap();
+
+    // Parent delegates to child.
+    let (status, body) = send_agent_request(
+        &server.app,
+        "POST",
+        "/v1/agent/delegate",
+        &parent_key,
+        Some(json!({
+            "parent_grant_token": parent_token,
+            "sub_agent_id": child_id,
+            "scopes": ["api:call"],
+            "expires_in_seconds": 1800
+        })),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    let delegated_token = body["delegated_token"].as_str().unwrap();
+    let claims = server
+        .state
+        .token_verifier
+        .verify(delegated_token, None)
+        .unwrap();
+
+    // The delegated jti must be recorded in the tokens table so DB-backed
+    // revocation reaches delegated grants.
+    assert!(
+        !server.state.db.is_token_revoked(&claims.jti).await.unwrap(),
+        "delegated token should be recorded and live"
+    );
+    server.state.db.revoke_token(&claims.jti).await.unwrap();
+    assert!(
+        server.state.db.is_token_revoked(&claims.jti).await.unwrap(),
+        "revoking the recorded delegated jti must work"
+    );
+
+    // The delegation decision itself must appear in the audit chain with the
+    // full hop chain and the delegated jti.
+    let entries = server.state.db.all_audit_entries().await.unwrap();
+    let delegation_entry = entries
+        .iter()
+        .find(|e| e.action == "delegate" && e.agent_id == uuid::Uuid::parse_str(&child_id).unwrap())
+        .expect("delegation audited");
+    assert_eq!(delegation_entry.decision, "allow");
+    assert_eq!(
+        delegation_entry.token_jti.as_deref(),
+        Some(claims.jti.as_str())
+    );
+    let chain = delegation_entry
+        .delegation_chain
+        .as_ref()
+        .expect("chain captured");
+    let hops = chain.as_array().unwrap();
+    assert_eq!(hops.len(), 1);
+    assert!(hops[0]["sub"].as_str().unwrap().starts_with("user:"));
+    assert!(hops[0]["act"].as_str().unwrap().starts_with("agent:"));
+
+    // The chain including the delegation entry still verifies.
+    assert!(patroclus::audit::verify_chain(&entries).is_valid());
 }

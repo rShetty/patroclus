@@ -253,6 +253,19 @@ async fn request_access(
         }));
     }
 
+    // Emergency stop binds at the agent level, not per session id: the
+    // session id is client-supplied, so a killed agent could otherwise evade
+    // the kill switch by rotating to a fresh id.
+    if state.session_store.is_agent_killed(agent.id) {
+        return Ok(Json(AccessResponse {
+            decision: "deny".to_string(),
+            token: None,
+            approval: None,
+            reason: "Agent has been killed by emergency stop".to_string(),
+            approved_scopes: vec![],
+        }));
+    }
+
     let ctx = PolicyContext {
         agent: agent.clone(),
         principal: principal.clone(),
@@ -393,6 +406,17 @@ async fn check_access(
         None => None,
     };
 
+    // Dry-run must honor the emergency stop too, otherwise the killed agent
+    // regains a decision oracle (and dry-run audits would show allows).
+    if state.session_store.is_agent_killed(agent.id) {
+        return Ok(Json(serde_json::json!({
+            "allowed": false,
+            "decision": "deny",
+            "approved_scopes": [],
+            "reason": "Agent has been killed by emergency stop",
+        })));
+    }
+
     let ctx = PolicyContext {
         agent: agent.clone(),
         principal: principal.clone(),
@@ -496,11 +520,50 @@ async fn delegate(
         audience: format!("agent:{}", req.sub_agent_id),
         ttl_seconds: effective_ttl,
         delegation_depth: new_depth,
-        delegation_chain: Some(delegation_chain),
+        delegation_chain: Some(delegation_chain.clone()),
         constraints: parent_claims.constraints.clone(),
     };
 
-    let (jwt, _jti) = state.token_issuer.issue(&params)?;
+    let (jwt, jti) = state.token_issuer.issue(&params)?;
+
+    // Record the delegated grant so DB-backed revocation (kill switch, token
+    // revoke, expiry sweeps) covers delegated tokens too, not just tokens
+    // issued via request-access.
+    state
+        .db
+        .record_token(
+            &jti,
+            None,
+            req.sub_agent_id,
+            &req.scopes,
+            &format!("agent:{}", req.sub_agent_id),
+            effective_expiry,
+        )
+        .await?;
+    state.metrics.tokens_issued.inc();
+
+    // Delegation is a security-relevant decision in its own right: capture
+    // it in the tamper-evident audit chain with the full hop chain.
+    let audit = CreateAuditEntry {
+        agent_id: req.sub_agent_id,
+        principal_id: None,
+        action: "delegate".to_string(),
+        resource: format!("agent:{}", req.sub_agent_id),
+        decision: Decision::Allow,
+        reason: format!(
+            "Delegated scopes [{}] from {} (depth {}/{})",
+            req.scopes.join(", "),
+            parent_claims.act.sub,
+            new_depth,
+            max_depth
+        ),
+        delegation_chain: Some(
+            serde_json::to_value(&delegation_chain).unwrap_or(serde_json::Value::Null),
+        ),
+        token_jti: Some(jti),
+        dry_run: false,
+    };
+    state.db.create_audit_entry(&audit).await?;
 
     Ok(Json(crate::gateway::DelegateResponse {
         delegated_token: jwt,
@@ -508,7 +571,6 @@ async fn delegate(
         scopes: req.scopes,
     }))
 }
-
 async fn approval_status(
     State(state): State<AppState>,
     auth: Option<axum::Extension<crate::api::auth::AuthenticatedAgent>>,
@@ -945,14 +1007,15 @@ async fn kill_agent(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
-    let sessions = state.session_store.list_sessions();
-    let mut killed = 0;
-    for s in &sessions {
-        if s.agent_id == id && !s.killed {
-            state.session_store.kill_session(&s.session_id);
-            killed += 1;
-        }
-    }
+    // Agent-level emergency stop: denies every current session and any
+    // future request regardless of the session id the client presents.
+    state.session_store.kill_agent(id);
+    let killed = state
+        .session_store
+        .list_sessions()
+        .iter()
+        .filter(|s| s.agent_id == id && s.killed)
+        .count();
     state.db.revoke_agent_tokens(id).await?;
     Ok(Json(serde_json::json!({
         "killed": true,
