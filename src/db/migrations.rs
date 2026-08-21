@@ -134,5 +134,18 @@ pub fn run(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_vault_principal ON vault_credentials(principal_id);
         ",
     )?;
+
+    // Column additions for existing databases. SQLite raises
+    // "duplicate column name" when the column already exists — ignore it.
+    let add_client_key = "ALTER TABLE agents ADD COLUMN client_key_hash TEXT";
+    if let Err(rusqlite::Error::SqliteFailure(err, _)) = conn.execute(add_client_key, []) {
+        // SQLITE_ERROR(1) with extended code covering duplicate columns.
+        if err.extended_code != rusqlite::ffi::SQLITE_CONSTRAINT
+            && err.extended_code != rusqlite::ffi::SQLITE_ERROR
+        {
+            return Err(rusqlite::Error::SqliteFailure(err, None));
+        }
+    }
+
     Ok(())
 }

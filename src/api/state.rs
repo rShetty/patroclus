@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
+use crate::api::auth::AuthConfig;
 use crate::config::Config;
 use crate::crypto::KeyPair;
 use crate::db::Database;
@@ -15,6 +16,7 @@ use crate::vault::Vault;
 pub struct AppState {
     pub db: Arc<Database>,
     pub config: Arc<Config>,
+    pub auth: Arc<AuthConfig>,
     pub policy_engine: Arc<RwLock<Arc<dyn PolicyEngine>>>,
     pub token_issuer: Arc<TokenIssuer>,
     pub token_verifier: Arc<TokenVerifier>,
@@ -67,6 +69,7 @@ impl AppState {
         Ok(AppState {
             db: Arc::new(db),
             config: Arc::new(config),
+            auth: Arc::new(AuthConfig::from_env()),
             policy_engine: Arc::new(RwLock::new(policy_engine)),
             token_issuer,
             token_verifier,
@@ -102,6 +105,7 @@ impl AppState {
         Ok(AppState {
             db: Arc::new(db),
             config: Arc::new(config),
+            auth: Arc::new(AuthConfig::for_test()),
             policy_engine: Arc::new(RwLock::new(policy_engine)),
             token_issuer,
             token_verifier,

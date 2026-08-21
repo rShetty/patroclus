@@ -80,10 +80,49 @@ impl Database {
         self.get_agent(id)
     }
 
+    /// Store the SHA-256 hash of an agent's client key. The raw key is never
+    /// persisted.
+    pub fn set_agent_client_key_hash(&self, agent_id: Uuid, key_hash: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        let now = Utc::now();
+        let updated = conn.execute(
+            "UPDATE agents SET client_key_hash = ?, updated_at = ? WHERE id = ?",
+            params![key_hash, now.to_rfc3339(), agent_id.to_string()],
+        )?;
+        drop(conn);
+        if updated == 0 {
+            return Err(PatroclusError::AgentNotFound(agent_id.to_string()));
+        }
+        Ok(())
+    }
+
+    /// Look up an active agent by its client-key hash. Returns `Ok(None)`
+    /// when no agent matches so callers can treat every failure uniformly.
+    pub fn get_agent_by_client_key_hash(&self, key_hash: &str) -> Result<Option<Agent>> {
+        let agent_id = {
+            let conn = self.conn.lock();
+            let mut stmt = conn
+                .prepare("SELECT id FROM agents WHERE client_key_hash = ? AND status = 'active'")?;
+            let result = stmt.query_row(params![key_hash], |row| {
+                let id_str: String = row.get(0)?;
+                Ok(Uuid::parse_str(&id_str).unwrap_or_default())
+            });
+            match result {
+                Ok(id) => Some(id),
+                Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                Err(e) => return Err(e.into()),
+            }
+        };
+        match agent_id {
+            Some(id) => Ok(Some(self.get_agent(id)?)),
+            None => Ok(None),
+        }
+    }
+
     pub fn get_agent(&self, id: Uuid) -> Result<Agent> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, name, principal_type, public_key, did, owner_id, status, created_at, updated_at
+            "SELECT id, name, principal_type, public_key, did, owner_id, status, client_key_hash, created_at, updated_at
              FROM agents WHERE id = ?",
         )?;
         let agent = stmt.query_row(params![id.to_string()], |row| {
@@ -108,10 +147,11 @@ impl Database {
                 did: row.get(4)?,
                 owner_id: owner_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
                 status,
-                created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(7)?)
+                client_key_hash: row.get(7)?,
+                created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(8)?)
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
-                updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(8)?)
+                updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(9)?)
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
             })
@@ -128,7 +168,7 @@ impl Database {
     pub fn list_agents(&self) -> Result<Vec<Agent>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, name, principal_type, public_key, did, owner_id, status, created_at, updated_at
+            "SELECT id, name, principal_type, public_key, did, owner_id, status, client_key_hash, created_at, updated_at
              FROM agents ORDER BY created_at DESC",
         )?;
         let agents = stmt.query_map([], |row| {
@@ -153,10 +193,11 @@ impl Database {
                 did: row.get(4)?,
                 owner_id: owner_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
                 status,
-                created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(7)?)
+                client_key_hash: row.get(7)?,
+                created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(8)?)
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
-                updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(8)?)
+                updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(9)?)
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(Utc::now()),
             })

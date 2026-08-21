@@ -102,6 +102,11 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
             "/v1/admin/agents/{id}/spend".to_string(),
             post(record_spend),
         ),
+        // Admin — agent client key provisioning (raw key returned once)
+        (
+            "/v1/admin/agents/{id}/client-key".to_string(),
+            post(provision_client_key),
+        ),
         // IdP Federation
         (
             "/v1/idp/authorize/{provider}".to_string(),
@@ -128,8 +133,17 @@ async fn health() -> (StatusCode, Json<serde_json::Value>) {
 
 async fn request_access(
     State(state): State<AppState>,
+    auth: Option<axum::Extension<crate::api::auth::AuthenticatedAgent>>,
     Json(req): Json<AccessRequest>,
 ) -> Result<Json<AccessResponse>, PatroclusError> {
+    let authenticated = auth.ok_or_else(|| {
+        PatroclusError::Forbidden("request was not authenticated as an agent".to_string())
+    })?;
+    if authenticated.0.agent_id != req.agent_id {
+        return Err(PatroclusError::Forbidden(
+            "client key does not belong to the requested agent".to_string(),
+        ));
+    }
     let agent = state.db.get_agent(req.agent_id)?;
     let principal = if let Some(token) = &req.delegation_token {
         let claims = state.token_verifier.verify(token, None)?;
@@ -266,8 +280,17 @@ async fn request_access(
 
 async fn check_access(
     State(state): State<AppState>,
+    auth: Option<axum::Extension<crate::api::auth::AuthenticatedAgent>>,
     Json(req): Json<AccessRequest>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
+    let authenticated = auth.ok_or_else(|| {
+        PatroclusError::Forbidden("request was not authenticated as an agent".to_string())
+    })?;
+    if authenticated.0.agent_id != req.agent_id {
+        return Err(PatroclusError::Forbidden(
+            "client key does not belong to the requested agent".to_string(),
+        ));
+    }
     let agent = state.db.get_agent(req.agent_id)?;
     let principal = agent
         .owner_id
@@ -361,9 +384,18 @@ async fn delegate(
 
 async fn approval_status(
     State(state): State<AppState>,
+    auth: Option<axum::Extension<crate::api::auth::AuthenticatedAgent>>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<crate::approval::ApprovalRequest>, PatroclusError> {
+    let authenticated = auth.ok_or_else(|| {
+        PatroclusError::Forbidden("request was not authenticated as an agent".to_string())
+    })?;
     let req = state.db.get_approval_request(id)?;
+    if req.agent_id != authenticated.0.agent_id {
+        return Err(PatroclusError::Forbidden(
+            "approval request belongs to a different agent".to_string(),
+        ));
+    }
     Ok(Json(req))
 }
 
@@ -498,6 +530,24 @@ async fn deny_request(
 }
 
 // ── Admin routes ──────────────────────────────────────────────────
+
+/// Provision (or rotate) an agent's client key. The raw key is returned
+/// exactly once; only its SHA-256 hash is stored.
+async fn provision_client_key(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    // Ensure the agent exists first (get_agent raises AgentNotFound).
+    state.db.get_agent(id)?;
+    let (raw_key, key_hash) = crate::api::auth::generate_client_key();
+    state.db.set_agent_client_key_hash(id, &key_hash)?;
+    tracing::info!(agent_id = %id, "client key provisioned");
+    Ok(Json(serde_json::json!({
+        "agent_id": id,
+        "client_key": raw_key,
+        "note": "Store this key securely — it is not retrievable later."
+    })))
+}
 
 async fn create_agent(
     State(state): State<AppState>,
