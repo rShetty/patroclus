@@ -33,6 +33,13 @@ impl TokenVerifier {
         })
     }
 
+    /// Verify a token's signature, issuer, expiry and revocation state.
+    ///
+    /// Per RFC 8707 the caller must bind the token to its intended audience:
+    /// internal verification paths pass the authenticated agent's audience
+    /// (`agent:<id>`), so tokens addressed to any other audience are rejected.
+    /// `None` skips audience validation and is only appropriate where no
+    /// resource binding exists (e.g. inspection of raw claims in tests).
     pub fn verify(&self, token: &str, expected_audience: Option<&str>) -> Result<AgentClaims> {
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_issuer(&[&self.issuer]);

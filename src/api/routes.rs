@@ -161,7 +161,13 @@ async fn request_access(
     }
     let agent = state.db.get_agent(req.agent_id)?;
     let principal = if let Some(token) = &req.delegation_token {
-        let claims = state.token_verifier.verify(token, None)?;
+        // RFC 8707 audience binding: a delegation grant is only usable by the
+        // agent it is addressed to, so reject tokens bound to any other
+        // audience than the requesting agent.
+        let expected_audience = format!("agent:{}", req.agent_id);
+        let claims = state
+            .token_verifier
+            .verify(token, Some(&expected_audience))?;
         state
             .db
             .get_principal_by_email(&claims.sub.replace("user:", ""))
@@ -337,9 +343,19 @@ async fn check_access(
 
 async fn delegate(
     State(state): State<AppState>,
+    auth: Option<axum::Extension<crate::api::auth::AuthenticatedAgent>>,
     Json(req): Json<crate::gateway::DelegateRequest>,
 ) -> Result<Json<crate::gateway::DelegateResponse>, PatroclusError> {
-    let parent_claims = state.token_verifier.verify(&req.parent_grant_token, None)?;
+    let authenticated = auth.ok_or_else(|| {
+        PatroclusError::Forbidden("request was not authenticated as an agent".to_string())
+    })?;
+    // RFC 8707 audience binding: the parent grant must be addressed to the
+    // agent presenting it. Each hop of a delegation chain therefore validates
+    // its own audience, and the child grant is re-bound to its recipient.
+    let expected_audience = format!("agent:{}", authenticated.0.agent_id);
+    let parent_claims = state
+        .token_verifier
+        .verify(&req.parent_grant_token, Some(&expected_audience))?;
     let parent_scopes: Vec<String> = parent_claims
         .scope
         .split_whitespace()
@@ -381,7 +397,9 @@ async fn delegate(
         subject: parent_claims.sub.clone(),
         agent_id: format!("agent:{}", req.sub_agent_id),
         scopes: req.scopes.clone(),
-        audience: parent_claims.aud.clone(),
+        // The delegated grant is addressed to the sub-agent that receives it,
+        // so the next hop can enforce its own audience binding.
+        audience: format!("agent:{}", req.sub_agent_id),
         ttl_seconds: effective_ttl,
         delegation_depth: new_depth,
         delegation_chain: Some(delegation_chain),
