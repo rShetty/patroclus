@@ -1,4 +1,6 @@
-use axum::Router;
+use std::time::Instant;
+
+use axum::{Router, extract::State, http::Request, middleware::Next, response::Response};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::api::auth::auth_middleware;
@@ -24,6 +26,35 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+/// Middleware recording per-request latency into the Prometheus histogram,
+/// labelled by HTTP method and route path template.
+async fn metrics_latency_middleware(
+    State(state): State<AppState>,
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    let method = req.method().clone();
+    // Use the matched route template when available so cardinality stays
+    // bounded; fall back to the raw path for unmatched requests.
+    let path = req
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map(|p| p.as_str().to_string())
+        .unwrap_or_else(|| req.uri().path().to_string());
+
+    let start = Instant::now();
+    let response = next.run(req).await;
+    let elapsed = start.elapsed().as_secs_f64();
+
+    state
+        .metrics
+        .request_duration
+        .with_label_values(&[method.as_str(), &path])
+        .observe(elapsed);
+
+    response
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -53,6 +84,10 @@ pub fn create_router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            metrics_latency_middleware,
         ))
         .layer(TraceLayer::new_for_http())
         .layer(cors)

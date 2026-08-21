@@ -107,6 +107,9 @@ short-lived scoped credential is issued or a human approval is triggered.
   pool (`spawn_blocking`) with WAL + `busy_timeout` tuning; optional r2d2 read
   pool via `[database] read_pool_size` — see
   [docs/DATABASE_CONCURRENCY.md](docs/DATABASE_CONCURRENCY.md)
+- **Prometheus metrics** — `/metrics` exposes authz decision counters, request
+  latency histograms, session/approval-depth gauges and token issuance — see
+  [docs/METRICS.md](docs/METRICS.md)
 
 ## Architecture
 

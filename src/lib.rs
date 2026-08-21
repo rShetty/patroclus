@@ -9,6 +9,7 @@ pub mod errors;
 pub mod gateway;
 pub mod identity;
 pub mod idp;
+pub mod metrics;
 pub mod policy;
 pub mod resource;
 pub mod session;

@@ -27,6 +27,8 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
         // Health
         ("/health".to_string(), get(health)),
         ("/health/ready".to_string(), get(health_ready)),
+        // Prometheus metrics — scrape target, intentionally unauthenticated
+        ("/metrics".to_string(), get(prometheus_metrics)),
         // Well-known — public key distribution for resource servers
         ("/.well-known/jwks.json".to_string(), get(jwks)),
         // Agent-facing
@@ -147,6 +149,33 @@ async fn health_ready(State(state): State<AppState>) -> (StatusCode, Json<serde_
     }
 }
 
+/// Refresh the gauges that derive from live runtime state, then render every
+/// metric family in the Prometheus text exposition format.
+async fn prometheus_metrics(State(state): State<AppState>) -> axum::response::Response {
+    state
+        .metrics
+        .active_sessions
+        .set(state.session_store.list_sessions().len() as i64);
+    state.metrics.approval_queue_depth.set(
+        state
+            .db
+            .list_pending_approvals()
+            .await
+            .map(|p| p.len() as i64)
+            .unwrap_or(0),
+    );
+
+    let body = state.metrics.gather();
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        body,
+    )
+        .into_response()
+}
+
 // ── Well-known endpoints ──────────────────────────────────────────
 
 /// RFC 7517 JWKS endpoint: publishes the public half of each configured
@@ -233,6 +262,13 @@ async fn request_access(
     let eval = state.eval_engine(&ctx)?;
     let mut response = AccessResponse::from(eval.clone());
 
+    let outcome = match &eval.decision {
+        crate::policy::Decision::Allow => "allow",
+        crate::policy::Decision::Deny => "deny",
+        crate::policy::Decision::RequireApproval { .. } => "require_approval",
+    };
+    state.metrics.record_decision(outcome, &req.action);
+
     match &eval.decision {
         Decision::Allow => {
             let params = IssueTokenParams {
@@ -272,6 +308,7 @@ async fn request_access(
                     expires_at,
                 )
                 .await?;
+            state.metrics.tokens_issued.inc();
 
             response.token = Some(crate::gateway::IssuedTokenInfo {
                 jwt,
@@ -528,6 +565,7 @@ async fn principal_delegate(
             expires_at,
         )
         .await?;
+    state.metrics.tokens_issued.inc();
 
     Ok(Json(serde_json::json!({
         "grant_id": grant_id,

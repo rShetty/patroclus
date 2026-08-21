@@ -22,6 +22,8 @@ pub struct AppState {
     pub token_verifier: Arc<TokenVerifier>,
     pub vault: Option<Arc<Vault>>,
     pub session_store: Arc<SessionStore>,
+    /// Prometheus metric families served at `/metrics`.
+    pub metrics: Arc<crate::metrics::Metrics>,
 }
 
 impl AppState {
@@ -75,6 +77,7 @@ impl AppState {
             token_verifier,
             vault,
             session_store,
+            metrics: Arc::new(crate::metrics::Metrics::new()),
         })
     }
 
@@ -111,6 +114,7 @@ impl AppState {
             token_verifier,
             vault: Some(vault),
             session_store,
+            metrics: Arc::new(crate::metrics::Metrics::new()),
         })
     }
 
