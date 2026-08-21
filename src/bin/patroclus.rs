@@ -28,12 +28,16 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "patroclus=debug,tower_http=debug".into()),
-        )
-        .init();
+    let json_logs = std::env::var("PATROCLUS_LOG_FORMAT").as_deref() == Ok("json");
+    let subscriber = tracing_subscriber::fmt().with_env_filter(
+        tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| "patroclus=debug,tower_http=debug".into()),
+    );
+    if json_logs {
+        subscriber.json().init();
+    } else {
+        subscriber.init();
+    }
 
     let cli = Cli::parse();
 

@@ -15,6 +15,9 @@ pub struct Config {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    /// Allowed CORS origins. Empty list = no cross-origin browser access.
+    #[serde(default)]
+    pub cors_allowed_origins: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,8 +70,9 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             server: ServerConfig {
-                host: "0.0.0.0".to_string(),
+                host: "127.0.0.1".to_string(),
                 port: 8484,
+                cors_allowed_origins: vec![],
             },
             database: DatabaseConfig {
                 path: "patroclus.db".to_string(),

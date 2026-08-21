@@ -119,6 +119,13 @@ impl Database {
         }
     }
 
+    /// Cheap liveness probe for the database: runs a trivial query.
+    pub fn health_check(&self) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.query_row("SELECT 1", [], |_| Ok(()))?;
+        Ok(())
+    }
+
     pub fn get_agent(&self, id: Uuid) -> Result<Agent> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(

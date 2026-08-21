@@ -34,12 +34,27 @@ pub fn create_router(state: AppState) -> Router {
         router = router.route(&path, method_router);
     }
 
+    // CORS: explicit allowlist only. An empty list means no browser
+    // cross-origin access at all (server-to-server callers are unaffected).
+    let cors = if state.config.server.cors_allowed_origins.is_empty() {
+        CorsLayer::new()
+    } else {
+        let origins: Vec<axum::http::HeaderValue> = state
+            .config
+            .server
+            .cors_allowed_origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+        CorsLayer::new().allow_origin(origins)
+    };
+
     router
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
         ))
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .with_state(state)
 }

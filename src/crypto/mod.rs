@@ -35,14 +35,30 @@ impl KeyPair {
         })
     }
 
+    /// Load keys from disk. Refuses to silently generate an ephemeral
+    /// keypair: in release builds a missing key is a hard error, and in
+    /// debug builds ephemeral generation requires PATROCLUS_INSECURE_DEV=1.
     pub fn load_or_generate(private_key_path: &str, public_key_path: &str) -> Result<Self> {
         match Self::from_files(private_key_path, public_key_path) {
             Ok(kp) => Ok(kp),
-            Err(_) => {
+            Err(load_err) => {
+                let insecure_dev = std::env::var("PATROCLUS_INSECURE_DEV").as_deref() == Ok("1");
+                if cfg!(not(debug_assertions)) && !insecure_dev {
+                    return Err(PatroclusError::Crypto(format!(
+                        "signing keys not found at {private_key_path} / {public_key_path}. \
+                         Provide keys or set PATROCLUS_INSECURE_DEV=1 (development only)."
+                    )));
+                }
+                if !insecure_dev {
+                    return Err(PatroclusError::Crypto(format!(
+                        "signing keys not found at {private_key_path} / {public_key_path}. \
+                         Generate them with `patroclus init` or set PATROCLUS_INSECURE_DEV=1 \
+                         to run with throwaway ephemeral keys."
+                    )));
+                }
                 tracing::warn!(
-                    "No keys found at {} / {}, generating ephemeral keypair (not for production)",
-                    private_key_path,
-                    public_key_path
+                    "generating EPHEMERAL signing keypair ({load_err}) — tokens will not \
+                     survive restart; development use only"
                 );
                 KeyPair::generate()
             }

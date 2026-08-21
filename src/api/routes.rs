@@ -25,6 +25,7 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
         ("/".to_string(), get(dashboard)),
         // Health
         ("/health".to_string(), get(health)),
+        ("/health/ready".to_string(), get(health_ready)),
         // Agent-facing
         ("/v1/agent/request-access".to_string(), post(request_access)),
         ("/v1/agent/check".to_string(), post(check_access)),
@@ -127,6 +128,20 @@ async fn health() -> (StatusCode, Json<serde_json::Value>) {
         StatusCode::OK,
         Json(serde_json::json!({ "status": "ok", "service": "patroclus" })),
     )
+}
+
+/// Readiness: process is up AND the policy store answers queries.
+async fn health_ready(State(state): State<AppState>) -> (StatusCode, Json<serde_json::Value>) {
+    match state.db.health_check() {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "ready", "database": "ok" })),
+        ),
+        Err(e) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "status": "not-ready", "database": e.to_string() })),
+        ),
+    }
 }
 
 // ── Agent-facing routes ───────────────────────────────────────────
