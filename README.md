@@ -102,6 +102,12 @@ short-lived scoped credential is issued or a human approval is triggered.
 - **Trust-based policies** — Patroclus policies can reference Forge trust scores (min_trust_score)
 - **Blocking** — agents with critical vulnerabilities are blocked from registration
 
+### Operational Hardening
+- **Non-blocking SQLite access** — all database calls run on tokio's blocking
+  pool (`spawn_blocking`) with WAL + `busy_timeout` tuning; optional r2d2 read
+  pool via `[database] read_pool_size` — see
+  [docs/DATABASE_CONCURRENCY.md](docs/DATABASE_CONCURRENCY.md)
+
 ## Architecture
 
 ```

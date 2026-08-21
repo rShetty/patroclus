@@ -135,7 +135,7 @@ async fn health() -> (StatusCode, Json<serde_json::Value>) {
 
 /// Readiness: process is up AND the policy store answers queries.
 async fn health_ready(State(state): State<AppState>) -> (StatusCode, Json<serde_json::Value>) {
-    match state.db.health_check() {
+    match state.db.health_check().await {
         Ok(()) => (
             StatusCode::OK,
             Json(serde_json::json!({ "status": "ready", "database": "ok" })),
@@ -178,7 +178,7 @@ async fn request_access(
             "client key does not belong to the requested agent".to_string(),
         ));
     }
-    let agent = state.db.get_agent(req.agent_id)?;
+    let agent = state.db.get_agent(req.agent_id).await?;
     let principal = if let Some(token) = &req.delegation_token {
         // RFC 8707 audience binding: a delegation grant is only usable by the
         // agent it is addressed to, so reject tokens bound to any other
@@ -190,10 +190,12 @@ async fn request_access(
         state
             .db
             .get_principal_by_email(&claims.sub.replace("user:", ""))
+            .await
     } else {
-        agent
-            .owner_id
-            .and_then(|oid| state.db.get_principal(oid).ok())
+        match agent.owner_id {
+            Some(oid) => state.db.get_principal(oid).await.ok(),
+            None => None,
+        }
     };
 
     let session_id = req
@@ -259,14 +261,17 @@ async fn request_access(
             let (jwt, jti) = state.token_issuer.issue(&params)?;
             let expires_at = params.expiry();
 
-            state.db.record_token(
-                &jti,
-                None,
-                agent.id,
-                &eval.approved_scopes,
-                &req.resource,
-                expires_at,
-            )?;
+            state
+                .db
+                .record_token(
+                    &jti,
+                    None,
+                    agent.id,
+                    &eval.approved_scopes,
+                    &req.resource,
+                    expires_at,
+                )
+                .await?;
 
             response.token = Some(crate::gateway::IssuedTokenInfo {
                 jwt,
@@ -276,15 +281,23 @@ async fn request_access(
             });
         }
         Decision::RequireApproval { .. } => {
-            let resource_id = state.db.find_resource_by_uri(&req.resource).ok().flatten();
-            let approval = state.db.create_approval_request(
-                agent.id,
-                principal.as_ref().map(|p| p.id),
-                resource_id,
-                &req.action,
-                &req.requested_scopes,
-                300,
-            )?;
+            let resource_id = state
+                .db
+                .find_resource_by_uri(&req.resource)
+                .await
+                .ok()
+                .flatten();
+            let approval = state
+                .db
+                .create_approval_request(
+                    agent.id,
+                    principal.as_ref().map(|p| p.id),
+                    resource_id,
+                    &req.action,
+                    &req.requested_scopes,
+                    300,
+                )
+                .await?;
             response.approval = Some(crate::gateway::ApprovalInfo {
                 request_id: approval.id,
                 status: "pending".to_string(),
@@ -313,7 +326,7 @@ async fn request_access(
         delegation_chain: None,
         token_jti: response.token.as_ref().map(|t| t.jti.clone()),
     };
-    state.db.create_audit_entry(&audit)?;
+    state.db.create_audit_entry(&audit).await?;
 
     Ok(Json(response))
 }
@@ -331,10 +344,11 @@ async fn check_access(
             "client key does not belong to the requested agent".to_string(),
         ));
     }
-    let agent = state.db.get_agent(req.agent_id)?;
-    let principal = agent
-        .owner_id
-        .and_then(|oid| state.db.get_principal(oid).ok());
+    let agent = state.db.get_agent(req.agent_id).await?;
+    let principal = match agent.owner_id {
+        Some(oid) => state.db.get_principal(oid).await.ok(),
+        None => None,
+    };
 
     let ctx = PolicyContext {
         agent: agent.clone(),
@@ -442,7 +456,7 @@ async fn approval_status(
     let authenticated = auth.ok_or_else(|| {
         PatroclusError::Forbidden("request was not authenticated as an agent".to_string())
     })?;
-    let req = state.db.get_approval_request(id)?;
+    let req = state.db.get_approval_request(id).await?;
     if req.agent_id != authenticated.0.agent_id {
         return Err(PatroclusError::Forbidden(
             "approval request belongs to a different agent".to_string(),
@@ -465,24 +479,27 @@ async fn principal_delegate(
     State(state): State<AppState>,
     Json(req): Json<PrincipalDelegateRequest>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
-    let agent = state.db.get_agent(req.agent_id)?;
+    let agent = state.db.get_agent(req.agent_id).await?;
     if agent.owner_id.is_none() {
         return Err(PatroclusError::AgentNotFound(
             "agent has no owner principal".to_string(),
         ));
     }
     let principal_id = agent.owner_id.unwrap();
-    let principal = state.db.get_principal(principal_id)?;
+    let principal = state.db.get_principal(principal_id).await?;
 
     let expires_at = Utc::now() + Duration::seconds(req.expires_in_seconds as i64);
-    let grant_id = state.db.create_grant(
-        agent.id,
-        principal_id,
-        None,
-        &req.scopes,
-        req.constraints.as_ref(),
-        expires_at,
-    )?;
+    let grant_id = state
+        .db
+        .create_grant(
+            agent.id,
+            principal_id,
+            None,
+            &req.scopes,
+            req.constraints.as_ref(),
+            expires_at,
+        )
+        .await?;
 
     let params = IssueTokenParams {
         issuer: state.config.token.issuer.clone(),
@@ -500,14 +517,17 @@ async fn principal_delegate(
 
     let (jwt, jti) = state.token_issuer.issue(&params)?;
 
-    state.db.record_token(
-        &jti,
-        Some(grant_id),
-        agent.id,
-        &req.scopes,
-        &format!("agent:{}", agent.id),
-        expires_at,
-    )?;
+    state
+        .db
+        .record_token(
+            &jti,
+            Some(grant_id),
+            agent.id,
+            &req.scopes,
+            &format!("agent:{}", agent.id),
+            expires_at,
+        )
+        .await?;
 
     Ok(Json(serde_json::json!({
         "grant_id": grant_id,
@@ -520,7 +540,7 @@ async fn principal_delegate(
 async fn list_principal_grants(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
-    let grants = state.db.list_all_grants()?;
+    let grants = state.db.list_all_grants().await?;
     Ok(Json(serde_json::json!({ "grants": grants })))
 }
 
@@ -536,7 +556,7 @@ async fn revoke_grant(
     Path(id): Path<Uuid>,
     Json(_req): Json<RevokeGrantRequest>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
-    let revoked = state.db.revoke_grant(id)?;
+    let revoked = state.db.revoke_grant(id).await?;
     Ok(Json(serde_json::json!({
         "revoked_grants": revoked,
         "count": revoked.len(),
@@ -546,7 +566,7 @@ async fn revoke_grant(
 async fn list_pending_approvals(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<crate::approval::ApprovalRequest>>, PatroclusError> {
-    let approvals = state.db.list_pending_approvals()?;
+    let approvals = state.db.list_pending_approvals().await?;
     Ok(Json(approvals))
 }
 
@@ -562,10 +582,10 @@ async fn approve_request(
     Path(id): Path<Uuid>,
     Json(req): Json<ApproveRequest>,
 ) -> Result<Json<crate::approval::ApprovalRequest>, PatroclusError> {
-    let approval =
-        state
-            .db
-            .resolve_approval_request(id, req.approver_id, true, req.reason.as_deref())?;
+    let approval = state
+        .db
+        .resolve_approval_request(id, req.approver_id, true, req.reason.as_deref())
+        .await?;
     Ok(Json(approval))
 }
 
@@ -574,10 +594,10 @@ async fn deny_request(
     Path(id): Path<Uuid>,
     Json(req): Json<ApproveRequest>,
 ) -> Result<Json<crate::approval::ApprovalRequest>, PatroclusError> {
-    let approval =
-        state
-            .db
-            .resolve_approval_request(id, req.approver_id, false, req.reason.as_deref())?;
+    let approval = state
+        .db
+        .resolve_approval_request(id, req.approver_id, false, req.reason.as_deref())
+        .await?;
     Ok(Json(approval))
 }
 
@@ -590,9 +610,9 @@ async fn provision_client_key(
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
     // Ensure the agent exists first (get_agent raises AgentNotFound).
-    state.db.get_agent(id)?;
+    state.db.get_agent(id).await?;
     let (raw_key, key_hash) = crate::api::auth::generate_client_key();
-    state.db.set_agent_client_key_hash(id, &key_hash)?;
+    state.db.set_agent_client_key_hash(id, &key_hash).await?;
     tracing::info!(agent_id = %id, "client key provisioned");
     Ok(Json(serde_json::json!({
         "agent_id": id,
@@ -605,14 +625,14 @@ async fn create_agent(
     State(state): State<AppState>,
     Json(req): Json<CreateAgentRequest>,
 ) -> Result<Json<crate::identity::Agent>, PatroclusError> {
-    let agent = state.db.create_agent(&req)?;
+    let agent = state.db.create_agent(&req).await?;
     Ok(Json(agent))
 }
 
 async fn list_agents(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<crate::identity::Agent>>, PatroclusError> {
-    let agents = state.db.list_agents()?;
+    let agents = state.db.list_agents().await?;
     Ok(Json(agents))
 }
 
@@ -620,7 +640,7 @@ async fn get_agent(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<crate::identity::Agent>, PatroclusError> {
-    let agent = state.db.get_agent(id)?;
+    let agent = state.db.get_agent(id).await?;
     Ok(Json(agent))
 }
 
@@ -628,7 +648,7 @@ async fn create_principal(
     State(state): State<AppState>,
     Json(req): Json<CreatePrincipalRequest>,
 ) -> Result<Json<crate::identity::Principal>, PatroclusError> {
-    let principal = state.db.create_principal(&req)?;
+    let principal = state.db.create_principal(&req).await?;
     Ok(Json(principal))
 }
 
@@ -636,14 +656,14 @@ async fn create_resource(
     State(state): State<AppState>,
     Json(req): Json<crate::resource::CreateResourceRequest>,
 ) -> Result<Json<crate::resource::Resource>, PatroclusError> {
-    let resource = state.db.create_resource(&req)?;
+    let resource = state.db.create_resource(&req).await?;
     Ok(Json(resource))
 }
 
 async fn list_resources(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<crate::resource::Resource>>, PatroclusError> {
-    let resources = state.db.list_resources()?;
+    let resources = state.db.list_resources().await?;
     Ok(Json(resources))
 }
 
@@ -660,9 +680,11 @@ async fn create_policy(
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
     state
         .db
-        .create_policy(&req.name, &req.engine, &req.definition)?;
+        .create_policy(&req.name, &req.engine, &req.definition)
+        .await?;
     state
         .reload_policy()
+        .await
         .map_err(|e| PatroclusError::Config(e.to_string()))?;
     tracing::info!("Policy '{}' created and hot-reloaded", req.name);
 
@@ -674,7 +696,7 @@ async fn create_policy(
 async fn list_policies(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
-    let policies = state.db.list_policies()?;
+    let policies = state.db.list_policies().await?;
     let result: Vec<serde_json::Value> = policies
         .into_iter()
         .map(|(id, name, engine, status, definition)| {
@@ -693,7 +715,7 @@ async fn list_policies(
 async fn list_audit(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<crate::audit::AuditEntry>>, PatroclusError> {
-    let entries = state.db.list_audit_entries(100)?;
+    let entries = state.db.list_audit_entries(100).await?;
     Ok(Json(entries))
 }
 
@@ -701,7 +723,7 @@ async fn revoke_token(
     State(state): State<AppState>,
     Path(jti): Path<String>,
 ) -> Result<Json<serde_json::Value>, PatroclusError> {
-    state.db.revoke_token(&jti)?;
+    state.db.revoke_token(&jti).await?;
     state.token_verifier.revoke(&jti);
     Ok(Json(serde_json::json!({ "revoked": jti })))
 }
@@ -717,15 +739,18 @@ async fn store_credential(
     })?;
 
     let (encrypted, nonce) = vault.encrypt(&req.refresh_token)?;
-    let id = state.db.store_vault_credential(
-        req.principal_id,
-        &req.provider,
-        &encrypted,
-        &nonce,
-        vault.key_id(),
-        &req.scopes,
-        req.expires_at,
-    )?;
+    let id = state
+        .db
+        .store_vault_credential(
+            req.principal_id,
+            &req.provider,
+            &encrypted,
+            &nonce,
+            vault.key_id(),
+            &req.scopes,
+            req.expires_at,
+        )
+        .await?;
 
     Ok(Json(serde_json::json!({
         "id": id,
@@ -770,7 +795,8 @@ async fn vend_credential(
 
     let record = state
         .db
-        .get_vault_credential(req.principal_id, &req.provider)?
+        .get_vault_credential(req.principal_id, &req.provider)
+        .await?
         .ok_or_else(|| {
             PatroclusError::Vault(format!(
                 "No stored credential for provider '{}' and principal '{}'",
@@ -865,7 +891,7 @@ async fn kill_agent(
             killed += 1;
         }
     }
-    state.db.revoke_agent_tokens(id)?;
+    state.db.revoke_agent_tokens(id).await?;
     Ok(Json(serde_json::json!({
         "killed": true,
         "agent_id": id,
@@ -961,7 +987,7 @@ async fn idp_callback(
 
     let user_info = crate::idp::IdpFederation::fetch_userinfo(provider, &access_token).await?;
 
-    let principal = state.db.get_principal_by_email(&user_info.email);
+    let principal = state.db.get_principal_by_email(&user_info.email).await;
     let principal_id = if let Some(p) = principal {
         p.id
     } else {
@@ -972,7 +998,8 @@ async fn idp_callback(
                 idp_provider: provider.name.clone(),
                 email: user_info.email.clone(),
                 display_name: user_info.name.unwrap_or_else(|| user_info.email.clone()),
-            })?
+            })
+            .await?
             .id
     };
 

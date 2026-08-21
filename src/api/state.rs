@@ -26,12 +26,12 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(config: Config) -> anyhow::Result<Self> {
-        let db = Database::new(&config.database.path)?;
-        db.create_default_policy()?;
+        let db = Database::with_config(&config.database)?;
+        db.create_default_policy().await?;
 
         let session_store = Arc::new(SessionStore::new());
 
-        let policy_engine = Self::build_engine(&config, &db, &session_store)?;
+        let policy_engine = Self::build_engine_async(&db, &session_store, &config).await?;
 
         let keypair = KeyPair::load_or_generate(
             &config.token.private_key_path,
@@ -78,14 +78,14 @@ impl AppState {
         })
     }
 
-    pub fn new_test() -> anyhow::Result<Self> {
+    pub async fn new_test() -> anyhow::Result<Self> {
         let config = Config::default();
         let db = Database::new(":memory:")?;
-        db.create_default_policy()?;
+        db.create_default_policy().await?;
 
         let session_store = Arc::new(SessionStore::new());
 
-        let policy_engine = Self::build_engine(&config, &db, &session_store)?;
+        let policy_engine = Self::build_engine_async(&db, &session_store, &config).await?;
 
         let keypair = KeyPair::generate()?;
 
@@ -114,12 +114,22 @@ impl AppState {
         })
     }
 
-    fn build_engine(
-        config: &Config,
+    pub async fn reload_policy(&self) -> anyhow::Result<()> {
+        let engine = Self::build_engine_async(&self.db, &self.session_store, &self.config).await?;
+        let mut guard = self.policy_engine.write();
+        *guard = engine;
+        tracing::info!("Policy engine reloaded");
+        Ok(())
+    }
+
+    /// Async variant of [`Self::build_engine`] that reads the active policy
+    /// through the blocking-pool database layer.
+    async fn build_engine_async(
         db: &Database,
         session_store: &Arc<SessionStore>,
+        config: &Config,
     ) -> anyhow::Result<Arc<dyn PolicyEngine>> {
-        let policy_yaml = db.load_active_policy_yaml()?;
+        let policy_yaml = db.load_active_policy_yaml().await?;
         let yaml_ref = if policy_yaml.is_empty() {
             None
         } else {
@@ -131,14 +141,6 @@ impl AppState {
             session_store.clone(),
         )?;
         Ok(Arc::from(engine))
-    }
-
-    pub fn reload_policy(&self) -> anyhow::Result<()> {
-        let engine = Self::build_engine(&self.config, &self.db, &self.session_store)?;
-        let mut guard = self.policy_engine.write();
-        *guard = engine;
-        tracing::info!("Policy engine reloaded");
-        Ok(())
     }
 
     pub fn eval_engine(

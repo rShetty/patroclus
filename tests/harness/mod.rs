@@ -8,16 +8,16 @@ pub struct TestServer {
 }
 
 impl TestServer {
-    pub fn new() -> anyhow::Result<Self> {
-        let state = AppState::new_test()?;
+    pub async fn new() -> anyhow::Result<Self> {
+        let state = AppState::new_test().await?;
         let app = create_router(state.clone());
         Ok(TestServer { app, state })
     }
 
-    pub fn new_with_policy(yaml: &str) -> anyhow::Result<Self> {
-        let state = AppState::new_test()?;
-        state.db.create_policy("test", "yaml", yaml)?;
-        state.reload_policy()?;
+    pub async fn new_with_policy(yaml: &str) -> anyhow::Result<Self> {
+        let state = AppState::new_test().await?;
+        state.db.create_policy("test", "yaml", yaml).await?;
+        state.reload_policy().await?;
         let app = create_router(state.clone());
         Ok(TestServer { app, state })
     }

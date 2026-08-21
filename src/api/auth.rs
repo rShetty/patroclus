@@ -188,7 +188,8 @@ pub async fn auth_middleware(
         }
         let agent = state
             .db
-            .get_agent_by_client_key_hash(&hash_client_key(raw_key));
+            .get_agent_by_client_key_hash(&hash_client_key(raw_key))
+            .await;
         match agent {
             Ok(Some(agent)) => {
                 let mut req = req;

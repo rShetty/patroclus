@@ -45,7 +45,9 @@ async fn issue_access_token(server: &harness::TestServer) -> String {
 
 #[tokio::test]
 async fn jwks_is_public_and_cache_friendly() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
 
     let response = server
         .app
@@ -86,7 +88,9 @@ async fn jwks_is_public_and_cache_friendly() {
 
 #[tokio::test]
 async fn fetched_jwks_validates_an_issued_token() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let jwt = issue_access_token(&server).await;
 
     // Fetch the JWKS exactly as a resource server would.
@@ -115,7 +119,9 @@ async fn fetched_jwks_validates_an_issued_token() {
 
 #[tokio::test]
 async fn tampered_tokens_fail_against_jwks_key() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let jwt = issue_access_token(&server).await;
 
     let (_, body) = harness::send_request(&server.app, "GET", "/.well-known/jwks.json", None).await;

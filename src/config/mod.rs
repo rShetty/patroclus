@@ -23,6 +23,11 @@ pub struct ServerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
     pub path: String,
+    /// Size of the optional read connection pool (r2d2_sqlite). `0` (the
+    /// default) disables pooling and serves reads from the shared write
+    /// connection. Only meaningful for file-backed databases.
+    #[serde(default)]
+    pub read_pool_size: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +81,7 @@ impl Default for Config {
             },
             database: DatabaseConfig {
                 path: "patroclus.db".to_string(),
+                read_pool_size: 0,
             },
             token: TokenConfig {
                 issuer: "http://localhost:8484".to_string(),

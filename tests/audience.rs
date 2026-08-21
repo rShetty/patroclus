@@ -39,7 +39,9 @@ async fn principal_grant(app: &axum::Router, grantee: &str, scopes: &[&str]) -> 
 
 #[tokio::test]
 async fn request_access_rejects_delegation_token_bound_to_another_audience() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (holder_id, _, _holder_key) =
         create_agent_with_key(&server.app, "holder", "holder@test.com").await;
     let (other_id, _, other_key) =
@@ -74,7 +76,9 @@ async fn request_access_rejects_delegation_token_bound_to_another_audience() {
 
 #[tokio::test]
 async fn request_access_accepts_delegation_token_bound_to_requesting_agent() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (holder_id, _, holder_key) =
         create_agent_with_key(&server.app, "holder", "own@test.com").await;
 
@@ -101,7 +105,9 @@ async fn request_access_accepts_delegation_token_bound_to_requesting_agent() {
 
 #[tokio::test]
 async fn delegate_rejects_parent_token_bound_to_another_audience() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (holder_id, _, _holder_key) =
         create_agent_with_key(&server.app, "holder", "parent@test.com").await;
     let (_impostor_id, _, impostor_key) =
@@ -134,7 +140,9 @@ async fn delegate_rejects_parent_token_bound_to_another_audience() {
 
 #[tokio::test]
 async fn delegation_chain_validates_and_rebinds_audience_at_each_hop() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (a_id, _, a_key) = create_agent_with_key(&server.app, "a", "a@test.com").await;
     let (b_id, _, b_key) = create_agent_with_key(&server.app, "b", "b@test.com").await;
     let (c_id, _, _c_key) = create_agent_with_key(&server.app, "c", "c@test.com").await;

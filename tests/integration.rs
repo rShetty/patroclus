@@ -142,7 +142,7 @@ async fn send_request(
 
 #[tokio::test]
 async fn test_health() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let (status, body) = send_request(&server.app, "GET", "/health", None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], "ok");
@@ -151,7 +151,7 @@ async fn test_health() {
 
 #[tokio::test]
 async fn test_create_agent() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let (status, body) = send_request(
         &server.app,
         "POST",
@@ -171,7 +171,7 @@ async fn test_create_agent() {
 
 #[tokio::test]
 async fn test_create_principal() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let (status, body) = send_request(
         &server.app,
         "POST",
@@ -191,7 +191,7 @@ async fn test_create_principal() {
 
 #[tokio::test]
 async fn test_list_agents() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     create_agent_and_principal(&server.app, "agent-1", "user1@test.com").await;
     create_agent_and_principal(&server.app, "agent-2", "user2@test.com").await;
 
@@ -203,7 +203,7 @@ async fn test_list_agents() {
 
 #[tokio::test]
 async fn test_get_agent_by_id() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let (agent_id, _, _agent_key) =
         harness::create_agent_with_key(&server.app, "my-agent", "owner@test.com").await;
 
@@ -221,7 +221,7 @@ async fn test_get_agent_by_id() {
 
 #[tokio::test]
 async fn test_get_agent_not_found() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let (status, body) = send_request(
         &server.app,
         "GET",
@@ -239,7 +239,7 @@ async fn test_get_agent_not_found() {
 
 #[tokio::test]
 async fn test_default_deny_when_no_policy() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let (agent_id, _, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -267,7 +267,9 @@ async fn test_default_deny_when_no_policy() {
 
 #[tokio::test]
 async fn test_policy_allow_issues_token() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -295,7 +297,9 @@ async fn test_policy_allow_issues_token() {
 
 #[tokio::test]
 async fn test_policy_deny_for_prod_delete() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -320,7 +324,9 @@ async fn test_policy_deny_for_prod_delete() {
 
 #[tokio::test]
 async fn test_policy_require_approval_for_prod_write() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, principal_id, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -362,7 +368,9 @@ async fn test_policy_require_approval_for_prod_write() {
 
 #[tokio::test]
 async fn test_check_access_dry_run() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -390,7 +398,9 @@ async fn test_check_access_dry_run() {
 
 #[tokio::test]
 async fn test_audit_log_records_decisions() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -438,7 +448,9 @@ async fn test_audit_log_records_decisions() {
 
 #[tokio::test]
 async fn test_audit_log_hash_chain_integrity() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -481,7 +493,9 @@ async fn test_audit_log_hash_chain_integrity() {
 
 #[tokio::test]
 async fn test_issued_token_is_verifiable() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -513,7 +527,9 @@ async fn test_issued_token_is_verifiable() {
 
 #[tokio::test]
 async fn test_token_revocation() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -564,7 +580,9 @@ async fn test_token_revocation() {
 
 #[tokio::test]
 async fn test_token_audience_binding() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -602,7 +620,9 @@ async fn test_token_audience_binding() {
 
 #[tokio::test]
 async fn test_principal_delegates_scoped_permissions() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, _agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -628,7 +648,9 @@ async fn test_principal_delegates_scoped_permissions() {
 
 #[tokio::test]
 async fn test_delegation_token_is_verifiable() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, _agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -652,7 +674,9 @@ async fn test_delegation_token_is_verifiable() {
 
 #[tokio::test]
 async fn test_sub_delegation_narrower_scope() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, parent_key) =
         harness::create_agent_with_key(&server.app, "parent-agent", "user@test.com").await;
     let (sub_agent_id, _, _sub_key) =
@@ -697,7 +721,9 @@ async fn test_sub_delegation_narrower_scope() {
 
 #[tokio::test]
 async fn test_sub_delegation_scope_escalation_rejected() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, parent_key) =
         harness::create_agent_with_key(&server.app, "parent-agent", "user@test.com").await;
     let (sub_agent_id, _, _sub_key) =
@@ -737,7 +763,9 @@ async fn test_sub_delegation_scope_escalation_rejected() {
 
 #[tokio::test]
 async fn test_delegation_depth_limit() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
 
     // Create a chain of agents
     let mut agent_ids = Vec::new();
@@ -811,7 +839,9 @@ async fn test_delegation_depth_limit() {
 
 #[tokio::test]
 async fn test_sub_delegation_cannot_outlive_parent() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, parent_key) =
         harness::create_agent_with_key(&server.app, "parent", "user@test.com").await;
     let (sub_agent_id, _, _sub_key) =
@@ -864,7 +894,9 @@ async fn test_sub_delegation_cannot_outlive_parent() {
 
 #[tokio::test]
 async fn test_revoke_grant_cascades_to_children() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
 
     let (parent_id, _, parent_key) =
         harness::create_agent_with_key(&server.app, "parent", "p@test.com").await;
@@ -938,7 +970,9 @@ async fn test_revoke_grant_cascades_to_children() {
 
 #[tokio::test]
 async fn test_approval_workflow_approve() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, principal_id, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -1004,7 +1038,9 @@ async fn test_approval_workflow_approve() {
 
 #[tokio::test]
 async fn test_approval_workflow_deny() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, principal_id, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -1056,7 +1092,9 @@ async fn test_approval_workflow_deny() {
 
 #[tokio::test]
 async fn test_approval_status_lookup() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, principal_id, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -1106,7 +1144,9 @@ async fn test_approval_status_lookup() {
 
 #[tokio::test]
 async fn test_double_approval_rejected() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, principal_id, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
 
@@ -1168,7 +1208,7 @@ async fn test_double_approval_rejected() {
 
 #[tokio::test]
 async fn test_create_and_list_policies() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
 
     let (status, _) = send_request(
         &server.app,
@@ -1195,7 +1235,7 @@ async fn test_create_and_list_policies() {
 
 #[tokio::test]
 async fn test_create_and_list_resources() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
 
     let (status, body) = send_request(
         &server.app,
@@ -1227,7 +1267,9 @@ async fn test_create_and_list_resources() {
 
 #[tokio::test]
 async fn test_e2e_delegation_then_access() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         harness::create_agent_with_key(&server.app, "worker", "user@test.com").await;
 
@@ -1277,7 +1319,9 @@ async fn test_e2e_delegation_then_access() {
 
 #[tokio::test]
 async fn test_e2e_multi_agent_delegation_chain() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
 
     let (orchestrator_id, _, orchestrator_key) =
         harness::create_agent_with_key(&server.app, "orchestrator", "orch@test.com").await;
@@ -1361,7 +1405,7 @@ async fn test_vault_decrypt_with_wrong_key_fails() {
 
 #[tokio::test]
 async fn test_vault_store_and_retrieve_credential() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let vault = server.state.vault.as_ref().unwrap();
 
     let (_, principal_id) =
@@ -1381,6 +1425,7 @@ async fn test_vault_store_and_retrieve_credential() {
             &["repo".to_string(), "read:user".to_string()],
             None,
         )
+        .await
         .unwrap();
 
     assert!(id != uuid::Uuid::nil());
@@ -1389,6 +1434,7 @@ async fn test_vault_store_and_retrieve_credential() {
         .state
         .db
         .get_vault_credential(pid, "github")
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(record.provider, "github");
@@ -1402,7 +1448,7 @@ async fn test_vault_store_and_retrieve_credential() {
 
 #[tokio::test]
 async fn test_vault_store_credential_api() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let (_, principal_id) =
         create_agent_and_principal(&server.app, "agent", "vault-api@test.com").await;
 
@@ -1426,7 +1472,7 @@ async fn test_vault_store_credential_api() {
 
 #[tokio::test]
 async fn test_vault_store_and_retrieve_via_api() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let (_, principal_id) =
         create_agent_and_principal(&server.app, "agent", "vault-rt@test.com").await;
 
@@ -1451,6 +1497,7 @@ async fn test_vault_store_and_retrieve_via_api() {
         .state
         .db
         .get_vault_credential(pid, "slack")
+        .await
         .unwrap()
         .unwrap();
     let decrypted = vault
@@ -1462,7 +1509,7 @@ async fn test_vault_store_and_retrieve_via_api() {
 
 #[tokio::test]
 async fn test_vault_vend_unknown_provider_fails() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let (_, principal_id) = create_agent_and_principal(&server.app, "agent", "vend@test.com").await;
 
     // Store a credential for an unknown provider
@@ -1498,7 +1545,7 @@ async fn test_vault_vend_unknown_provider_fails() {
 
 #[tokio::test]
 async fn test_vault_vend_no_stored_credential_fails() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let (_, principal_id) =
         create_agent_and_principal(&server.app, "agent", "vend-nc@test.com").await;
 
@@ -1526,7 +1573,7 @@ async fn test_vault_vend_no_stored_credential_fails() {
 
 #[tokio::test]
 async fn test_vault_different_providers_isolated() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let vault = server.state.vault.as_ref().unwrap();
     let (_, principal_id) = create_agent_and_principal(&server.app, "agent", "iso@test.com").await;
     let pid = uuid::Uuid::parse_str(&principal_id).unwrap();
@@ -1545,6 +1592,7 @@ async fn test_vault_different_providers_isolated() {
             &["repo".to_string()],
             None,
         )
+        .await
         .unwrap();
 
     // Store Slack credential
@@ -1561,6 +1609,7 @@ async fn test_vault_different_providers_isolated() {
             &["chat:write".to_string()],
             None,
         )
+        .await
         .unwrap();
 
     // Retrieve GitHub
@@ -1568,6 +1617,7 @@ async fn test_vault_different_providers_isolated() {
         .state
         .db
         .get_vault_credential(pid, "github")
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -1580,6 +1630,7 @@ async fn test_vault_different_providers_isolated() {
         .state
         .db
         .get_vault_credential(pid, "slack")
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -1596,7 +1647,9 @@ async fn test_vault_different_providers_isolated() {
 
 #[tokio::test]
 async fn test_e2e_agent_requests_access_then_vault_vends_credential() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, principal_id, agent_key) =
         harness::create_agent_with_key(&server.app, "agent", "e2e-vault@test.com").await;
 
@@ -1616,6 +1669,7 @@ async fn test_e2e_agent_requests_access_then_vault_vends_credential() {
             &["repo".to_string()],
             None,
         )
+        .await
         .unwrap();
 
     // Agent requests access — should get a token
@@ -1641,6 +1695,7 @@ async fn test_e2e_agent_requests_access_then_vault_vends_credential() {
         .state
         .db
         .get_vault_credential(pid, "github")
+        .await
         .unwrap()
         .unwrap();
     let decrypted = vault
@@ -1655,7 +1710,7 @@ async fn test_e2e_agent_requests_access_then_vault_vends_credential() {
 
 #[tokio::test]
 async fn test_admin_routes_reject_unauthenticated() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     // Raw oneshot without the harness auto-header.
     let request = axum::http::Request::builder()
         .method("GET")
@@ -1668,7 +1723,7 @@ async fn test_admin_routes_reject_unauthenticated() {
 
 #[tokio::test]
 async fn test_admin_routes_reject_wrong_token() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let request = axum::http::Request::builder()
         .method("GET")
         .uri("/v1/admin/agents")
@@ -1681,7 +1736,9 @@ async fn test_admin_routes_reject_wrong_token() {
 
 #[tokio::test]
 async fn test_agent_routes_require_client_key() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, _key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
     let body = json!({
@@ -1713,7 +1770,9 @@ async fn test_agent_routes_require_client_key() {
 
 #[tokio::test]
 async fn test_agent_key_cannot_act_for_another_agent() {
-    let server = harness::TestServer::new_with_policy(ALLOW_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ALLOW_POLICY)
+        .await
+        .unwrap();
     let (_agent_a, _, key_a) =
         harness::create_agent_with_key(&server.app, "agent-a", "a@test.com").await;
     let (agent_b, _, _key_b) =
@@ -1738,7 +1797,7 @@ async fn test_agent_key_cannot_act_for_another_agent() {
 
 #[tokio::test]
 async fn test_client_key_provisioning_returns_raw_once_and_works() {
-    let server = harness::TestServer::new().unwrap();
+    let server = harness::TestServer::new().await.unwrap();
     let (agent_id, _, client_key) =
         harness::create_agent_with_key(&server.app, "agent", "user@test.com").await;
     assert!(client_key.starts_with("pat_"));

@@ -79,7 +79,9 @@ const ADVANCED_POLICY: &str = r#"
 
 #[tokio::test]
 async fn test_rate_limiting_blocks_after_threshold() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) = create_agent_with_key(&server.app, "agent", "rl@test.com").await;
     let mut agent = AgentHarness::new(&agent_id, "")
         .with_client_key(&agent_key)
@@ -103,7 +105,9 @@ async fn test_rate_limiting_blocks_after_threshold() {
 
 #[tokio::test]
 async fn test_rate_limiting_independent_per_resource() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         create_agent_with_key(&server.app, "agent", "rl2@test.com").await;
     let mut agent = AgentHarness::new(&agent_id, "")
@@ -135,7 +139,9 @@ async fn test_rate_limiting_independent_per_resource() {
 
 #[tokio::test]
 async fn test_budget_cap_blocks_after_spend() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         create_agent_with_key(&server.app, "agent", "budget@test.com").await;
     let mut agent = AgentHarness::new(&agent_id, "")
@@ -169,7 +175,9 @@ async fn test_budget_cap_blocks_after_spend() {
 
 #[tokio::test]
 async fn test_spend_tracking_accumulates() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         create_agent_with_key(&server.app, "agent", "spend@test.com").await;
     let mut agent = AgentHarness::new(&agent_id, "")
@@ -199,7 +207,9 @@ async fn test_spend_tracking_accumulates() {
 
 #[tokio::test]
 async fn test_trust_level_starts_at_full() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         create_agent_with_key(&server.app, "agent", "trust@test.com").await;
     let mut agent = AgentHarness::new(&agent_id, "")
@@ -222,7 +232,9 @@ async fn test_trust_level_starts_at_full() {
 
 #[tokio::test]
 async fn test_trust_decay_blocks_after_idle() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         create_agent_with_key(&server.app, "agent", "decay@test.com").await;
     let mut agent = AgentHarness::new(&agent_id, "")
@@ -262,7 +274,9 @@ async fn test_trust_decay_blocks_after_idle() {
 
 #[tokio::test]
 async fn test_workflow_requires_prior_action() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) = create_agent_with_key(&server.app, "agent", "wf@test.com").await;
     let mut agent = AgentHarness::new(&agent_id, "")
         .with_client_key(&agent_key)
@@ -313,7 +327,9 @@ async fn test_workflow_requires_prior_action() {
 
 #[tokio::test]
 async fn test_max_actions_per_session() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         create_agent_with_key(&server.app, "agent", "max@test.com").await;
     let mut agent = AgentHarness::new(&agent_id, "")
@@ -346,7 +362,9 @@ async fn test_max_actions_per_session() {
 
 #[tokio::test]
 async fn test_kill_session_blocks_all_subsequent_access() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         create_agent_with_key(&server.app, "agent", "kill@test.com").await;
     let mut agent = AgentHarness::new(&agent_id, "")
@@ -375,7 +393,9 @@ async fn test_kill_session_blocks_all_subsequent_access() {
 
 #[tokio::test]
 async fn test_kill_agent_kills_all_sessions() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         create_agent_with_key(&server.app, "agent", "killall@test.com").await;
 
@@ -426,7 +446,9 @@ async fn test_kill_agent_kills_all_sessions() {
 
 #[tokio::test]
 async fn test_session_trajectory_records_all_actions() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         create_agent_with_key(&server.app, "agent", "traj@test.com").await;
     let mut agent = AgentHarness::new(&agent_id, "")
@@ -455,7 +477,9 @@ async fn test_session_trajectory_records_all_actions() {
 
 #[tokio::test]
 async fn test_sessions_are_isolated_per_session_id() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
     let (agent_id, _, agent_key) =
         create_agent_with_key(&server.app, "agent", "iso@test.com").await;
 
@@ -493,7 +517,9 @@ async fn test_sessions_are_isolated_per_session_id() {
 
 #[tokio::test]
 async fn test_e2e_full_agent_lifecycle() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
 
     // Step 1: Register agent + principal
     let (agent_id, principal_id, agent_key) =
@@ -582,7 +608,9 @@ async fn test_e2e_full_agent_lifecycle() {
 
 #[tokio::test]
 async fn test_e2e_multi_agent_orchestration() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
 
     // Create orchestrator + workers
     let (orch_id, orch_principal, orch_key) =
