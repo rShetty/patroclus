@@ -80,7 +80,8 @@ short-lived scoped credential is issued or a human approval is triggered.
 
 ### Audit & Compliance
 - **Hash-chained audit log** — SHA-256 chain, tamper-evident
-- **Every decision logged** — allow, deny, require_approval with full context
+- **Chain verifier** — `patroclus verify-chain` recomputes the chain and reports the first broken link (exit code 1 on tamper, `--json` for machines)
+- **Every decision logged** — allow, deny, require_approval with full context; dry-run `/v1/agent/check` decisions audited with a `dry_run` flag
 - **Attribution-complete** — every action traces to human or system authority
 - **Delegation chain in log** — full chain captured, not reconstructed
 
@@ -101,6 +102,15 @@ short-lived scoped credential is issued or a human approval is triggered.
   signatures, generates SBOMs, scans for vulnerabilities, and calculates trust scores
 - **Trust-based policies** — Patroclus policies can reference Forge trust scores (min_trust_score)
 - **Blocking** — agents with critical vulnerabilities are blocked from registration
+
+### Operational Hardening
+- **Non-blocking SQLite access** — all database calls run on tokio's blocking
+  pool (`spawn_blocking`) with WAL + `busy_timeout` tuning; optional r2d2 read
+  pool via `[database] read_pool_size` — see
+  [docs/DATABASE_CONCURRENCY.md](docs/DATABASE_CONCURRENCY.md)
+- **Prometheus metrics** — `/metrics` exposes authz decision counters, request
+  latency histograms, session/approval-depth gauges and token issuance — see
+  [docs/METRICS.md](docs/METRICS.md)
 
 ## Architecture
 
@@ -142,6 +152,58 @@ cargo build --release
 ./target/release/patroclus generate-keys -o keys
 
 # Start the server
+./target/release/patroclus serve --config config.toml
+
+# Verify the audit hash chain (tamper detection)
+./target/release/patroclus verify-chain --db patroclus.db
+```
+
+## Configuration
+
+Configuration lives in `config.toml` (see `patroclus init`) and can be
+overridden by environment variables. **Layering: file < environment** — an
+environment variable always wins over the file value.
+
+### Environment variables
+
+Every config field can be overridden with `PATROCLUS_<SECTION>__<FIELD>`
+(double underscore as the nesting separator, case-insensitive). Values are
+parsed as TOML scalars (numbers, booleans, and `[...]` arrays); anything else
+is taken as a literal string. Unknown variables are ignored with a warning.
+This is the supported channel for injecting **secrets** (key paths, IdP client
+secrets) in container deployments without baking them into the file.
+
+| Variable | Overrides | Example |
+|---|---|---|
+| `PATROCLUS_SERVER__HOST` | `server.host` | `0.0.0.0` |
+| `PATROCLUS_SERVER__PORT` | `server.port` | `8484` |
+| `PATROCLUS_SERVER__CORS_ALLOWED_ORIGINS` | `server.cors_allowed_origins` | `["https://console.example.com"]` |
+| `PATROCLUS_DATABASE__PATH` | `database.path` | `/var/lib/patroclus/patroclus.db` |
+| `PATROCLUS_DATABASE__READ_POOL_SIZE` | `database.read_pool_size` | `4` |
+| `PATROCLUS_TOKEN__ISSUER` | `token.issuer` | `https://patroclus.example.com` |
+| `PATROCLUS_TOKEN__PRIVATE_KEY_PATH` | `token.private_key_path` | `/run/secrets/private.pem` |
+| `PATROCLUS_TOKEN__PUBLIC_KEY_PATH` | `token.public_key_path` | `/run/secrets/public.pem` |
+| `PATROCLUS_TOKEN__DEFAULT_TTL_SECONDS` | `token.default_ttl_seconds` | `900` |
+| `PATROCLUS_TOKEN__MAX_TTL_SECONDS` | `token.max_ttl_seconds` | `3600` |
+| `PATROCLUS_POLICY__ENGINE` | `policy.engine` | `yaml` |
+| `PATROCLUS_POLICY__DEFAULT_DECISION` | `policy.default_decision` | `deny` |
+| `PATROCLUS_POLICY__MAX_DELEGATION_DEPTH` | `policy.max_delegation_depth` | `3` |
+| `PATROCLUS_VAULT__ENCRYPTION_KEY_PATH` | `vault.encryption_key_path` | `/run/secrets/vault.key` |
+
+Related (non-config) variables used by other subsystems:
+
+| Variable | Purpose |
+|---|---|
+| `PATROCLUS_ADMIN_TOKEN` | Static admin bearer token for `/v1/admin/*` (required in release builds) |
+| `PATROCLUS_INSECURE_DEV` | `1` permits unauthenticated admin routes / insecure dev keys (never production) |
+| `PATROCLUS_LOG_FORMAT` | `json` switches logs to JSON |
+
+Example:
+
+```bash
+PATROCLUS_SERVER__PORT=9000 \
+PATROCLUS_DATABASE__PATH=/data/patroclus.db \
+PATROCLUS_ADMIN_TOKEN="$(openssl rand -hex 32)" \
 ./target/release/patroclus serve --config config.toml
 ```
 

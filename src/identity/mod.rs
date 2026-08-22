@@ -11,6 +11,9 @@ pub struct Agent {
     pub did: Option<String>,
     pub owner_id: Option<Uuid>,
     pub status: AgentStatus,
+    #[serde(skip_serializing)]
+    #[serde(default)]
+    pub client_key_hash: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

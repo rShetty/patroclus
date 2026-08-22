@@ -99,6 +99,11 @@ impl SessionState {
 pub struct SessionStore {
     sessions: RwLock<HashMap<String, SessionState>>,
     rate_limits: RwLock<HashMap<String, RateLimitState>>,
+    /// Agents disabled by the emergency stop. A killed *session* only blocks
+    /// that session id; an agent can otherwise evade the kill switch by
+    /// presenting a fresh session id. Agent-level kills persist for the
+    /// lifetime of the process.
+    killed_agents: RwLock<std::collections::HashSet<Uuid>>,
 }
 
 #[derive(Debug, Clone)]
@@ -118,7 +123,27 @@ impl SessionStore {
         SessionStore {
             sessions: RwLock::new(HashMap::new()),
             rate_limits: RwLock::new(HashMap::new()),
+            killed_agents: RwLock::new(std::collections::HashSet::new()),
         }
+    }
+
+    /// Emergency-stop an agent across every session it holds now or creates
+    /// later. Survives session-id rotation: a new session id for a killed
+    /// agent is still denied.
+    pub fn kill_agent(&self, agent_id: Uuid) {
+        let mut sessions = self.sessions.write();
+        let mut killed_agents = self.killed_agents.write();
+        killed_agents.insert(agent_id);
+        for s in sessions.values_mut() {
+            if s.agent_id == agent_id {
+                s.killed = true;
+            }
+        }
+    }
+
+    /// Whether the emergency stop currently applies to this agent.
+    pub fn is_agent_killed(&self, agent_id: Uuid) -> bool {
+        self.killed_agents.read().contains(&agent_id)
     }
 
     pub fn get_or_create_session(
@@ -273,6 +298,25 @@ mod tests {
         assert!(!store.is_killed("s1"));
         assert!(store.kill_session("s1"));
         assert!(store.is_killed("s1"));
+    }
+
+    #[test]
+    fn test_kill_agent_covers_new_sessions() {
+        let agent = Uuid::now_v7();
+        let other = Uuid::now_v7();
+        let store = SessionStore::new();
+        store.get_or_create_session("a1", agent, None);
+
+        assert!(!store.is_agent_killed(agent));
+        store.kill_agent(agent);
+        assert!(store.is_agent_killed(agent));
+
+        // Existing sessions are marked killed...
+        assert!(store.is_killed("a1"));
+        // ...sessions created *after* the stop are denied via the agent flag...
+        assert!(!store.is_killed("brand-new"));
+        // ...and unrelated agents are untouched.
+        assert!(!store.is_agent_killed(other));
     }
 
     #[test]

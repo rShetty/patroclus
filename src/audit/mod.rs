@@ -18,6 +18,10 @@ pub struct AuditEntry {
     pub reason: String,
     pub delegation_chain: Option<serde_json::Value>,
     pub token_jti: Option<String>,
+    /// True when the entry records a dry-run evaluation (`/v1/agent/check`)
+    /// rather than an enforced access decision. Part of the hashed payload so
+    /// flipping the flag after the fact breaks the chain.
+    pub dry_run: bool,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -42,6 +46,7 @@ impl AuditEntry {
         if let Some(jti) = &self.token_jti {
             hasher.update(jti.as_bytes());
         }
+        hasher.update([u8::from(self.dry_run)]);
         hex::encode(hasher.finalize())
     }
 }
@@ -56,4 +61,11 @@ pub struct CreateAuditEntry {
     pub reason: String,
     pub delegation_chain: Option<serde_json::Value>,
     pub token_jti: Option<String>,
+    /// Marks the entry as a dry-run (non-enforcing) evaluation.
+    #[serde(default)]
+    pub dry_run: bool,
 }
+
+mod verifier;
+
+pub use verifier::{BrokenLink, BrokenLinkReason, ChainVerification, verify_chain};

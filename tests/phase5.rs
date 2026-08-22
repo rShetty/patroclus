@@ -1,6 +1,6 @@
 mod harness;
 
-use harness::{AgentHarness, create_agent_and_principal, send_request};
+use harness::{AgentHarness, create_agent_with_key, send_agent_request, send_request};
 use serde_json::json;
 
 const ADVANCED_POLICY: &str = r#"
@@ -79,9 +79,13 @@ const ADVANCED_POLICY: &str = r#"
 
 #[tokio::test]
 async fn test_rate_limiting_blocks_after_threshold() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "rl@test.com").await;
-    let mut agent = AgentHarness::new(&agent_id, "").with_session("rl-session");
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) = create_agent_with_key(&server.app, "agent", "rl@test.com").await;
+    let mut agent = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("rl-session");
 
     // First 3 calls should succeed
     for i in 0..3 {
@@ -101,9 +105,14 @@ async fn test_rate_limiting_blocks_after_threshold() {
 
 #[tokio::test]
 async fn test_rate_limiting_independent_per_resource() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "rl2@test.com").await;
-    let mut agent = AgentHarness::new(&agent_id, "").with_session("rl2-session");
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        create_agent_with_key(&server.app, "agent", "rl2@test.com").await;
+    let mut agent = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("rl2-session");
 
     // 3 calls to api-endpoint1
     for _ in 0..3 {
@@ -130,9 +139,14 @@ async fn test_rate_limiting_independent_per_resource() {
 
 #[tokio::test]
 async fn test_budget_cap_blocks_after_spend() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "budget@test.com").await;
-    let mut agent = AgentHarness::new(&agent_id, "").with_session("budget-session");
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        create_agent_with_key(&server.app, "agent", "budget@test.com").await;
+    let mut agent = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("budget-session");
 
     // First call to create session
     agent
@@ -161,9 +175,14 @@ async fn test_budget_cap_blocks_after_spend() {
 
 #[tokio::test]
 async fn test_spend_tracking_accumulates() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "spend@test.com").await;
-    let mut agent = AgentHarness::new(&agent_id, "").with_session("spend-session");
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        create_agent_with_key(&server.app, "agent", "spend@test.com").await;
+    let mut agent = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("spend-session");
 
     // First make an access request to create the session
     agent
@@ -188,9 +207,14 @@ async fn test_spend_tracking_accumulates() {
 
 #[tokio::test]
 async fn test_trust_level_starts_at_full() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "trust@test.com").await;
-    let mut agent = AgentHarness::new(&agent_id, "").with_session("trust-session");
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        create_agent_with_key(&server.app, "agent", "trust@test.com").await;
+    let mut agent = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("trust-session");
 
     // Sensitive write with full trust should be allowed
     let (decision, _, _) = agent
@@ -208,9 +232,14 @@ async fn test_trust_level_starts_at_full() {
 
 #[tokio::test]
 async fn test_trust_decay_blocks_after_idle() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "decay@test.com").await;
-    let mut agent = AgentHarness::new(&agent_id, "").with_session("decay-session");
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        create_agent_with_key(&server.app, "agent", "decay@test.com").await;
+    let mut agent = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("decay-session");
 
     // First write succeeds
     let (decision, _, _) = agent
@@ -245,9 +274,13 @@ async fn test_trust_decay_blocks_after_idle() {
 
 #[tokio::test]
 async fn test_workflow_requires_prior_action() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "wf@test.com").await;
-    let mut agent = AgentHarness::new(&agent_id, "").with_session("wf-session");
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) = create_agent_with_key(&server.app, "agent", "wf@test.com").await;
+    let mut agent = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("wf-session");
 
     // Try to execute_trade without loading profile first — should be denied
     let (decision, reason, _) = agent
@@ -294,9 +327,14 @@ async fn test_workflow_requires_prior_action() {
 
 #[tokio::test]
 async fn test_max_actions_per_session() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "max@test.com").await;
-    let mut agent = AgentHarness::new(&agent_id, "").with_session("max-actions-session");
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        create_agent_with_key(&server.app, "agent", "max@test.com").await;
+    let mut agent = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("max-actions-session");
 
     // 5 query actions should be allowed
     for i in 0..5 {
@@ -324,9 +362,14 @@ async fn test_max_actions_per_session() {
 
 #[tokio::test]
 async fn test_kill_session_blocks_all_subsequent_access() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "kill@test.com").await;
-    let mut agent = AgentHarness::new(&agent_id, "").with_session("kill-session");
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        create_agent_with_key(&server.app, "agent", "kill@test.com").await;
+    let mut agent = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("kill-session");
 
     // First access should work
     let (decision, _, _) = agent
@@ -350,12 +393,19 @@ async fn test_kill_session_blocks_all_subsequent_access() {
 
 #[tokio::test]
 async fn test_kill_agent_kills_all_sessions() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "killall@test.com").await;
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        create_agent_with_key(&server.app, "agent", "killall@test.com").await;
 
     // Create two sessions for the same agent
-    let mut agent_s1 = AgentHarness::new(&agent_id, "").with_session("kill-all-1");
-    let mut agent_s2 = AgentHarness::new(&agent_id, "").with_session("kill-all-2");
+    let mut agent_s1 = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("kill-all-1");
+    let mut agent_s2 = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("kill-all-2");
 
     // Both should work initially
     let (d1, _, _) = agent_s1
@@ -396,9 +446,14 @@ async fn test_kill_agent_kills_all_sessions() {
 
 #[tokio::test]
 async fn test_session_trajectory_records_all_actions() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "traj@test.com").await;
-    let mut agent = AgentHarness::new(&agent_id, "").with_session("traj-session");
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        create_agent_with_key(&server.app, "agent", "traj@test.com").await;
+    let mut agent = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("traj-session");
 
     // Perform several actions
     agent
@@ -422,11 +477,18 @@ async fn test_session_trajectory_records_all_actions() {
 
 #[tokio::test]
 async fn test_sessions_are_isolated_per_session_id() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
-    let (agent_id, _) = create_agent_and_principal(&server.app, "agent", "iso@test.com").await;
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        create_agent_with_key(&server.app, "agent", "iso@test.com").await;
 
-    let mut s1 = AgentHarness::new(&agent_id, "").with_session("iso-1");
-    let mut s2 = AgentHarness::new(&agent_id, "").with_session("iso-2");
+    let mut s1 = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("iso-1");
+    let mut s2 = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("iso-2");
 
     // Different sessions should have independent action counts
     s1.request_access(&server.app, "read", "dev-db", &["db:read"])
@@ -455,11 +517,13 @@ async fn test_sessions_are_isolated_per_session_id() {
 
 #[tokio::test]
 async fn test_e2e_full_agent_lifecycle() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
 
     // Step 1: Register agent + principal
-    let (agent_id, principal_id) =
-        create_agent_and_principal(&server.app, "lifecycle-agent", "life@test.com").await;
+    let (agent_id, principal_id, agent_key) =
+        create_agent_with_key(&server.app, "lifecycle-agent", "life@test.com").await;
 
     // Step 2: Principal delegates permissions
     let (_, body) = send_request(
@@ -477,6 +541,7 @@ async fn test_e2e_full_agent_lifecycle() {
 
     // Step 3: Agent uses delegation to access resources
     let mut agent = AgentHarness::new(&agent_id, &principal_id)
+        .with_client_key(&agent_key)
         .with_session("lifecycle-session")
         .with_delegation_token(delegation_token);
 
@@ -543,13 +608,17 @@ async fn test_e2e_full_agent_lifecycle() {
 
 #[tokio::test]
 async fn test_e2e_multi_agent_orchestration() {
-    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY).unwrap();
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
 
     // Create orchestrator + workers
-    let (orch_id, orch_principal) =
-        create_agent_and_principal(&server.app, "orchestrator", "orch@test.com").await;
-    let (worker1_id, _) = create_agent_and_principal(&server.app, "worker-1", "w1@test.com").await;
-    let (worker2_id, _) = create_agent_and_principal(&server.app, "worker-2", "w2@test.com").await;
+    let (orch_id, orch_principal, orch_key) =
+        create_agent_with_key(&server.app, "orchestrator", "orch@test.com").await;
+    let (worker1_id, _, worker1_key) =
+        create_agent_with_key(&server.app, "worker-1", "w1@test.com").await;
+    let (worker2_id, _, worker2_key) =
+        create_agent_with_key(&server.app, "worker-2", "w2@test.com").await;
 
     // Human delegates to orchestrator
     let (_, body) = send_request(
@@ -567,6 +636,7 @@ async fn test_e2e_multi_agent_orchestration() {
 
     // Orchestrator delegates narrowed scope to workers
     let mut orch = AgentHarness::new(&orch_id, &orch_principal)
+        .with_client_key(&orch_key)
         .with_session("orch-session")
         .with_delegation_token(orch_token);
 
@@ -590,6 +660,7 @@ async fn test_e2e_multi_agent_orchestration() {
 
     // Worker 1 can read
     let mut w1 = AgentHarness::new(&worker1_id, "")
+        .with_client_key(&worker1_key)
         .with_session("w1-session")
         .with_delegation_token(w1_token.unwrap().as_str());
     let (decision, _, _) = w1
@@ -599,6 +670,7 @@ async fn test_e2e_multi_agent_orchestration() {
 
     // Worker 2 can call API
     let mut w2 = AgentHarness::new(&worker2_id, "")
+        .with_client_key(&worker2_key)
         .with_session("w2-session")
         .with_delegation_token(w2_token.unwrap().as_str());
     let (decision, _, _) = w2
@@ -611,4 +683,150 @@ async fn test_e2e_multi_agent_orchestration() {
     assert!(sessions.iter().any(|s| s["session_id"] == "w1-session"));
     assert!(sessions.iter().any(|s| s["session_id"] == "w2-session"));
     assert!(sessions.iter().any(|s| s["session_id"] == "orch-session"));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECURITY — kill switch cannot be evaded via session-id rotation (issue #13)
+// ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn test_kill_agent_survives_session_id_rotation() {
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (agent_id, _, agent_key) =
+        create_agent_with_key(&server.app, "agent", "rotate@test.com").await;
+
+    // Access works before the kill.
+    let mut original = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("original-session");
+    let (decision, _, _) = original
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    assert_eq!(decision, "allow");
+
+    // Emergency stop at the agent level.
+    let (status, body) = send_request(
+        &server.app,
+        "POST",
+        &format!("/v1/admin/agents/{}/kill", agent_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_eq!(body["killed"], true);
+
+    // Old session is denied...
+    let (d_old, reason_old, _) = original
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    assert_eq!(d_old, "deny");
+    assert!(reason_old.contains("killed"));
+
+    // ...and so is a brand-new session id: rotation must not evade the stop.
+    let mut rotated = AgentHarness::new(&agent_id, "")
+        .with_client_key(&agent_key)
+        .with_session("fresh-session-after-kill");
+    let (d_new, reason_new, token) = rotated
+        .request_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    assert_eq!(d_new, "deny", "session-id rotation must not bypass kill");
+    assert!(
+        reason_new.contains("Agent has been killed"),
+        "reason: {reason_new}"
+    );
+    assert!(token.is_none(), "no token may be issued after agent kill");
+
+    // Dry-run checks are denied for killed agents as well.
+    let (allowed, _) = rotated
+        .check_access(&server.app, "read", "dev-db", &["db:read"])
+        .await;
+    assert!(!allowed, "dry-run must also honor the agent-level kill");
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECURITY — delegated tokens are recorded and audited (issue #13)
+// ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn test_delegation_is_recorded_and_audited() {
+    let server = harness::TestServer::new_with_policy(ADVANCED_POLICY)
+        .await
+        .unwrap();
+    let (parent_id, _, parent_key) =
+        create_agent_with_key(&server.app, "parent", "deleg-parent@test.com").await;
+    let (child_id, _, _child_key) =
+        create_agent_with_key(&server.app, "child", "deleg-child@test.com").await;
+
+    let (_, body) = send_request(
+        &server.app,
+        "POST",
+        "/v1/principal/delegate",
+        Some(json!({
+            "agent_id": parent_id,
+            "scopes": ["api:call"],
+            "expires_in_seconds": 3600
+        })),
+    )
+    .await;
+    let parent_token = body["delegation_token"].as_str().unwrap();
+
+    // Parent delegates to child.
+    let (status, body) = send_agent_request(
+        &server.app,
+        "POST",
+        "/v1/agent/delegate",
+        &parent_key,
+        Some(json!({
+            "parent_grant_token": parent_token,
+            "sub_agent_id": child_id,
+            "scopes": ["api:call"],
+            "expires_in_seconds": 1800
+        })),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    let delegated_token = body["delegated_token"].as_str().unwrap();
+    let claims = server
+        .state
+        .token_verifier
+        .verify(delegated_token, None)
+        .unwrap();
+
+    // The delegated jti must be recorded in the tokens table so DB-backed
+    // revocation reaches delegated grants.
+    assert!(
+        !server.state.db.is_token_revoked(&claims.jti).await.unwrap(),
+        "delegated token should be recorded and live"
+    );
+    server.state.db.revoke_token(&claims.jti).await.unwrap();
+    assert!(
+        server.state.db.is_token_revoked(&claims.jti).await.unwrap(),
+        "revoking the recorded delegated jti must work"
+    );
+
+    // The delegation decision itself must appear in the audit chain with the
+    // full hop chain and the delegated jti.
+    let entries = server.state.db.all_audit_entries().await.unwrap();
+    let delegation_entry = entries
+        .iter()
+        .find(|e| e.action == "delegate" && e.agent_id == uuid::Uuid::parse_str(&child_id).unwrap())
+        .expect("delegation audited");
+    assert_eq!(delegation_entry.decision, "allow");
+    assert_eq!(
+        delegation_entry.token_jti.as_deref(),
+        Some(claims.jti.as_str())
+    );
+    let chain = delegation_entry
+        .delegation_chain
+        .as_ref()
+        .expect("chain captured");
+    let hops = chain.as_array().unwrap();
+    assert_eq!(hops.len(), 1);
+    assert!(hops[0]["sub"].as_str().unwrap().starts_with("user:"));
+    assert!(hops[0]["act"].as_str().unwrap().starts_with("agent:"));
+
+    // The chain including the delegation entry still verifies.
+    assert!(patroclus::audit::verify_chain(&entries).is_valid());
 }

@@ -8,16 +8,16 @@ pub struct TestServer {
 }
 
 impl TestServer {
-    pub fn new() -> anyhow::Result<Self> {
-        let state = AppState::new_test()?;
+    pub async fn new() -> anyhow::Result<Self> {
+        let state = AppState::new_test().await?;
         let app = create_router(state.clone());
         Ok(TestServer { app, state })
     }
 
-    pub fn new_with_policy(yaml: &str) -> anyhow::Result<Self> {
-        let state = AppState::new_test()?;
-        state.db.create_policy("test", "yaml", yaml)?;
-        state.reload_policy()?;
+    pub async fn new_with_policy(yaml: &str) -> anyhow::Result<Self> {
+        let state = AppState::new_test().await?;
+        state.db.create_policy("test", "yaml", yaml).await?;
+        state.reload_policy().await?;
         let app = create_router(state.clone());
         Ok(TestServer { app, state })
     }
@@ -29,6 +29,7 @@ pub struct AgentHarness {
     pub agent_id: String,
     pub principal_id: String,
     pub session_id: String,
+    pub client_key: Option<String>,
     pub delegation_token: Option<String>,
     pub access_token: Option<String>,
     pub token_jti: Option<String>,
@@ -41,11 +42,17 @@ impl AgentHarness {
             agent_id: agent_id.to_string(),
             principal_id: principal_id.to_string(),
             session_id: format!("session-{}", uuid::Uuid::now_v7()),
+            client_key: None,
             delegation_token: None,
             access_token: None,
             token_jti: None,
             actions_taken: Vec::new(),
         }
+    }
+
+    pub fn with_client_key(mut self, key: &str) -> Self {
+        self.client_key = Some(key.to_string());
+        self
     }
 
     pub fn with_session(mut self, session_id: &str) -> Self {
@@ -80,8 +87,12 @@ impl AgentHarness {
             body["delegation_token"] = json!(token);
         }
 
+        let key = self
+            .client_key
+            .clone()
+            .expect("agent harness requires a client key");
         let (_status, resp) =
-            send_request(app, "POST", "/v1/agent/request-access", Some(body)).await;
+            send_agent_request(app, "POST", "/v1/agent/request-access", &key, Some(body)).await;
         self.actions_taken.push(format!("{}:{}", action, resource));
 
         let decision = resp["decision"].as_str().unwrap_or("error").to_string();
@@ -115,7 +126,11 @@ impl AgentHarness {
             }
         });
 
-        let (_, resp) = send_request(app, "POST", "/v1/agent/check", Some(body)).await;
+        let key = self
+            .client_key
+            .clone()
+            .expect("agent harness requires a client key");
+        let (_, resp) = send_agent_request(app, "POST", "/v1/agent/check", &key, Some(body)).await;
         let allowed = resp["allowed"].as_bool().unwrap_or(false);
         let reason = resp["reason"].as_str().unwrap_or("").to_string();
         (allowed, reason)
@@ -143,7 +158,12 @@ impl AgentHarness {
             "expires_in_seconds": expires_in_seconds,
         });
 
-        let (status, resp) = send_request(app, "POST", "/v1/agent/delegate", Some(body)).await;
+        let key = self
+            .client_key
+            .clone()
+            .expect("agent harness requires a client key");
+        let (status, resp) =
+            send_agent_request(app, "POST", "/v1/agent/delegate", &key, Some(body)).await;
         if status == StatusCode::OK {
             resp["delegated_token"].as_str().map(|s| s.to_string())
         } else {
@@ -184,6 +204,16 @@ use axum::http::{Request, StatusCode};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
+/// Admin token configured by [`patroclus::api::auth::AuthConfig::for_test`],
+/// which `AppState::new_test` installs.
+pub const TEST_ADMIN_TOKEN: &str = "test-admin-token";
+
+fn is_privileged_path(uri: &str) -> bool {
+    ["/v1/admin", "/v1/vault", "/v1/sessions", "/v1/principal"]
+        .iter()
+        .any(|p| uri == *p || uri.starts_with(&format!("{p}/")))
+}
+
 pub async fn send_request(
     app: &Router,
     method: &str,
@@ -191,6 +221,43 @@ pub async fn send_request(
     body: Option<Value>,
 ) -> (StatusCode, Value) {
     let mut builder = Request::builder().method(method).uri(uri);
+    if is_privileged_path(uri) {
+        builder = builder.header("Authorization", format!("Bearer {TEST_ADMIN_TOKEN}"));
+    }
+    if body.is_some() {
+        builder = builder.header("Content-Type", "application/json");
+    }
+    let request = if let Some(b) = body {
+        builder.body(Body::from(b.to_string())).unwrap()
+    } else {
+        builder.body(Body::empty()).unwrap()
+    };
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json_val: Value = if body_bytes.is_empty() {
+        json!({})
+    } else {
+        serde_json::from_slice(&body_bytes)
+            .unwrap_or(json!({ "raw": String::from_utf8_lossy(&body_bytes) }))
+    };
+    (status, json_val)
+}
+
+/// Send a request to an agent-facing route with the agent's client key.
+pub async fn send_agent_request(
+    app: &Router,
+    method: &str,
+    uri: &str,
+    client_key: &str,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("x-client-key", client_key);
     if body.is_some() {
         builder = builder.header("Content-Type", "application/json");
     }
@@ -246,4 +313,32 @@ pub async fn create_agent_and_principal(
     let agent_id = agent["id"].as_str().unwrap().to_string();
 
     (agent_id, principal_id)
+}
+
+/// Create an agent + principal and provision its client key.
+/// Returns `(agent_id, principal_id, client_key)`.
+pub async fn create_agent_with_key(
+    app: &Router,
+    agent_name: &str,
+    principal_email: &str,
+) -> (String, String, String) {
+    let (agent_id, principal_id) =
+        create_agent_and_principal(app, agent_name, principal_email).await;
+    let (status, resp) = send_request(
+        app,
+        "POST",
+        &format!("/v1/admin/agents/{agent_id}/client-key"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "client-key provisioning failed: {resp}"
+    );
+    let client_key = resp["client_key"]
+        .as_str()
+        .expect("client_key in provisioning response")
+        .to_string();
+    (agent_id, principal_id, client_key)
 }
