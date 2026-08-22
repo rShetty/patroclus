@@ -91,6 +91,10 @@ jobs:
             if [ ! -f /etc/patroclus/patroclus.env ]; then
               echo "RUST_LOG=info" > /etc/patroclus/patroclus.env
             fi
+            # Provision admin token once (required by release builds)
+            if ! grep -q "^PATROCLUS_ADMIN_TOKEN=" /etc/patroclus/patroclus.env; then
+              echo "PATROCLUS_ADMIN_TOKEN=$(openssl rand -hex 32)" >> /etc/patroclus/patroclus.env
+            fi
             chmod 600 /etc/patroclus/patroclus.env
 
             # Copy config
