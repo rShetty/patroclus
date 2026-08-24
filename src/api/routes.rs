@@ -105,6 +105,10 @@ pub fn all_routes() -> Vec<(String, MethodRouter)> {
         // Kill switch — emergency stop for agent
         ("/v1/admin/agents/{id}/kill".to_string(), post(kill_agent)),
         (
+            "/v1/admin/agents/{id}/restore".to_string(),
+            post(restore_agent),
+        ),
+        (
             "/v1/admin/agents/{id}/spend".to_string(),
             post(record_spend),
         ),
@@ -1234,5 +1238,17 @@ async fn list_idp_providers(
     Ok(Json(serde_json::json!({
         "enabled": state.config.idp.enabled,
         "providers": providers,
+    })))
+}
+
+/// POST /v1/admin/agents/{id}/restore — clear emergency stop for an agent.
+async fn restore_agent(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, PatroclusError> {
+    state.session_store.restore_agent(id);
+    Ok(Json(serde_json::json!({
+        "restored": true,
+        "agent_id": id,
     })))
 }

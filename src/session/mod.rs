@@ -146,6 +146,20 @@ impl SessionStore {
         self.killed_agents.read().contains(&agent_id)
     }
 
+    /// Clear an agent-level emergency stop and mark that agent's existing
+    /// sessions as no longer killed.
+    pub fn restore_agent(&self, agent_id: Uuid) {
+        let mut killed_agents = self.killed_agents.write();
+        killed_agents.remove(&agent_id);
+        drop(killed_agents);
+        let mut sessions = self.sessions.write();
+        for s in sessions.values_mut() {
+            if s.agent_id == agent_id {
+                s.killed = false;
+            }
+        }
+    }
+
     pub fn get_or_create_session(
         &self,
         session_id: &str,
