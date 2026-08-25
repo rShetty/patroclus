@@ -346,7 +346,7 @@ cd sdk/python && python -m pytest tests/
 
 ## Ecosystem
 
-Patroclus is part of a four-project agent governance ecosystem:
+Patroclus is part of the AI governance ecosystem governed through Governance Hub:
 
 | Project | Role |
 |---|---|
@@ -357,6 +357,8 @@ Patroclus is part of a four-project agent governance ecosystem:
 | [Sentiel](https://github.com/rShetty/sentiel) | Observability, DLP & compliance — what are agents doing? |
 | [Aegis](https://github.com/rShetty/Aegis) | Network egress & attestation — is the agent's network safe? |
 | [Forge](https://github.com/rShetty/forge) | Agent supply chain security — is the agent code trusted? |
+| [Argus](https://github.com/rShetty/argus) | Human/agent OIDC identity provider — who is calling? |
+| [Governance Hub](https://github.com/rShetty/governance-hub) | Unified admin console and sole product UI |
 
 See [docs/ECOSYSTEM_PLAN.md](docs/ECOSYSTEM_PLAN.md) for the full integration plan.
 
